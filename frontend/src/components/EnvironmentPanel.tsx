@@ -9,7 +9,7 @@ import {
   type KernelReadiness,
   type EnvironmentCandidate,
 } from "../services/environment";
-import { RefreshIcon, TrashIcon } from "./icons";
+import { CloseIcon, RefreshIcon, TrashIcon } from "./icons";
 
 interface EnvironmentPanelProps {
   venv: string;
@@ -142,7 +142,7 @@ export function EnvironmentPanel({
       <section className="environment-panel" role="dialog" aria-modal="true" aria-label="Python environment" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <div><span>PYTHON ENVIRONMENT</span><strong>{venv.split(/[\\/]/).at(-1)}</strong></div>
-          <button onClick={onClose} aria-label="Close environment panel">×</button>
+          <button onClick={onClose} aria-label="Close environment panel" title="Close"><CloseIcon /></button>
         </header>
         <div className="environment-paths">
           <span>{mode === "project" ? "uv project" : "uv virtual environment"}</span>

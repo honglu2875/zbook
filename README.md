@@ -1,6 +1,6 @@
-# Quick Notebook
+# Zbook
 
-Quick Notebook is an intentionally small, keyboard-first notebook application. It keeps the useful core of Jupyter—real `.ipynb` files, IPython kernels, markdown, rich outputs, and a workspace tree—then adds a first-class local Codex panel and a focused `uv` environment workflow.
+Zbook is an intentionally small, keyboard-first notebook application. It keeps the useful core of Jupyter—real `.ipynb` files, IPython kernels, markdown, rich outputs, and a workspace tree—then adds a first-class local Codex panel and a focused `uv` environment workflow.
 
 The design target is closer to Zed than JupyterLab: flat surfaces, restrained color, minimal persistent chrome, fast keyboard navigation, and no extension ecosystem to carry.
 
@@ -18,7 +18,8 @@ The main notebook loop is functional:
 - a fresh launch defaults to a scratch uv environment under `/tmp`, prepares `ipykernel`, and removes the scratch environment on shutdown;
 - workspace `.venv` folders are detected and can be selected live; a project folder or uv-venv path can also be entered manually;
 - the Codex panel uses the locally signed-in Codex CLI and ChatGPT subscription—no application API key—and streams turns through Codex App Server;
-- Codex receives optional notebook/cell context and exposes command/file approvals, interruption, and ChatGPT sign-in. Threads start read-only; workspace writes require an explicit approval.
+- Codex receives optional notebook/cell context, can edit files inside the configured workspace, and exposes live command/file activity plus any required approvals;
+- the Codex pane reads the installed CLI's model catalog and subscription rate limits, defaults to GPT-5.6-Terra with medium reasoning when available, and provides model/effort pickers, quota refresh, sign-in, and sign-out.
 
 This is still a focused checkpoint, not a JupyterLab replacement. Only one notebook is open at a time; non-notebook files are managed but not edited; Jupyter widgets and arbitrary JavaScript outputs are not supported; and Codex threads are currently ephemeral.
 
@@ -27,8 +28,8 @@ This is still a focused checkpoint, not a JupyterLab replacement. Only one noteb
 ```text
 React + CodeMirror 6
   ├─ Jupyter Contents / Kernel WebSocket APIs
-  ├─ Quick Notebook package-management API ── uv ── selected .venv
-  └─ Quick Notebook Codex WebSocket ── codex app-server (stdio JSONL)
+  ├─ Zbook package-management API ── uv ── selected .venv
+  └─ Zbook Codex WebSocket ── codex app-server (stdio JSONL)
 
 Jupyter Server ExtensionApp
   ├─ file boundary: configured workspace
@@ -36,7 +37,7 @@ Jupyter Server ExtensionApp
   └─ static production frontend
 ```
 
-Python owns processes, filesystem boundaries, and Jupyter integration. TypeScript owns interaction state and rendering. The selected notebook environment is deliberately separate from the app's own environment so installing a package cannot destabilize the server. The Codex bridge follows the official [Codex App Server](https://developers.openai.com/codex/app-server) protocol over a private authenticated WebSocket.
+Python owns processes, filesystem boundaries, and Jupyter integration. TypeScript owns interaction state and rendering. The selected notebook environment is deliberately separate from the app's own environment so installing a package cannot destabilize the server. Codex runs with workspace-write scope, while commands that need broader filesystem or network access still use the CLI's approval flow. The bridge follows the official [Codex App Server](https://developers.openai.com/codex/app-server) protocol over a private authenticated WebSocket.
 
 ## Run the checks
 
@@ -56,7 +57,7 @@ npm install
 npm run build
 ```
 
-The Vite build is emitted into `src/quick_notebook/static/`, where the Python application serves it.
+The Vite build is emitted into `src/zbook/static/`, where the Python application serves it.
 
 ## Launch
 
@@ -65,15 +66,15 @@ Build once, then point the application at the directory that should be visible i
 ```bash
 uv sync --dev
 cd frontend && npm install && npm run build && cd ..
-uv run quick-notebook --QuickNotebookApp.workspace=/absolute/path/to/workspace
+uv run zbook --ZbookApp.workspace=/absolute/path/to/workspace
 ```
 
 The default kernel environment is a disposable uv venv under `/tmp`. To start with a persistent environment instead, pass either its path or a project folder containing `.venv`:
 
 ```bash
-uv run quick-notebook \
-  --QuickNotebookApp.workspace=/absolute/path/to/workspace \
-  --QuickNotebookApp.venv=/absolute/path/to/project/.venv
+uv run zbook \
+  --ZbookApp.workspace=/absolute/path/to/workspace \
+  --ZbookApp.venv=/absolute/path/to/project/.venv
 ```
 
 The same choice can be changed from the environment panel while the app is running. A manually selected environment must be a uv-created virtual environment.

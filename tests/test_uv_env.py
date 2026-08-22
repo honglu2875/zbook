@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from quick_notebook.config import AppConfig
-from quick_notebook.uv_env import UvEnvironment
+from zbook.config import AppConfig
+from zbook.uv_env import UvEnvironment
 
 
 def make_config(project: bool) -> tuple[tempfile.TemporaryDirectory[str], AppConfig]:

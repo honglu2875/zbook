@@ -109,7 +109,7 @@ def create_temporary_uv_environment(executable: str = "uv") -> tuple[Path, Path]
     resolved_executable = shutil.which(executable)
     if resolved_executable is None:
         raise ConfigurationError("uv is required to create the default temporary environment")
-    root = Path(tempfile.mkdtemp(prefix="quick-notebook-"))
+    root = Path(tempfile.mkdtemp(prefix="zbook-"))
     venv = root / ".venv"
     try:
         result = subprocess.run(

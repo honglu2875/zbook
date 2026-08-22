@@ -18,7 +18,7 @@ const highlightStyle = HighlightStyle.define([
   { tag: tags.invalid, color: "#e78284" },
 ]);
 
-export const quickNotebookTheme = [
+export const zbookTheme = [
   EditorView.theme(
     {
       "&": {

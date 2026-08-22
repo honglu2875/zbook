@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "quick-notebook"
+name = "zbook"
 version = "0.1.0"
 description = "A small, keyboard-first notebook with uv and Codex integration"
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-quick-notebook = "quick_notebook.app:main"
+zbook = "zbook.app:main"
 
 [dependency-groups]
 dev = [
@@ -26,7 +26,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/quick_notebook"]
+packages = ["src/zbook"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

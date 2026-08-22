@@ -58,3 +58,6 @@ export const UploadIcon = (props: IconProps) => (
 export const NewFolderIcon = (props: IconProps) => (
   <Icon {...props}><path d="M1.75 4.25h4l1.2 1.5h7.3v7.5H1.75zM10.5 8v3M9 9.5h3" /></Icon>
 );
+export const CloseIcon = (props: IconProps) => (
+  <Icon {...props}><path d="m4 4 8 8M12 4l-8 8" /></Icon>
+);

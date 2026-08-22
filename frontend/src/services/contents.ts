@@ -20,11 +20,12 @@ function contentsUrl(path = ""): URL {
   return jupyterUrl(`contents${suffix ? `/${suffix}` : ""}`);
 }
 
-export async function listDirectory(path = ""): Promise<ContentEntry[]> {
+export async function listDirectory(path = "", refresh = false): Promise<ContentEntry[]> {
   const url = contentsUrl(path);
   url.searchParams.set("content", "1");
   url.searchParams.set("type", "directory");
-  const model = await requestJson<ContentEntry>(url);
+  if (refresh) url.searchParams.set("_refresh", String(Date.now()));
+  const model = await requestJson<ContentEntry>(url, refresh ? { cache: "no-store" } : {});
   if (model.type !== "directory" || !Array.isArray(model.content)) {
     throw new Error(`${path || "Workspace"} is not a directory`);
   }

@@ -131,9 +131,9 @@ export function emptyNotebook(): RawNotebook {
     cells: [],
     metadata: {
       kernelspec: {
-        display_name: "Python (Quick Notebook)",
+        display_name: "Python (Zbook)",
         language: "python",
-        name: "quick-notebook",
+        name: "zbook",
       },
       language_info: { name: "python" },
     },

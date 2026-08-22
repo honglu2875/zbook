@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from quick_notebook.config import AppConfig, ConfigurationError
-from quick_notebook.kernel_spec import build_kernel_spec, install_runtime_kernel_spec
+from zbook.config import AppConfig, ConfigurationError
+from zbook.kernel_spec import build_kernel_spec, install_runtime_kernel_spec
 
 
 class ConfigTests(unittest.TestCase):
@@ -58,10 +58,10 @@ class ConfigTests(unittest.TestCase):
         config = AppConfig.resolve(workspace, ".venv")
 
         kernel_root = install_runtime_kernel_spec(config, Path(temporary.name) / "runtime")
-        spec = json.loads((kernel_root / "quick-notebook" / "kernel.json").read_text())
+        spec = json.loads((kernel_root / "zbook" / "kernel.json").read_text())
 
         self.assertEqual(spec["argv"][0], str(config.python))
-        self.assertEqual(kernel_root.name, "quick-notebook-kernels")
+        self.assertEqual(kernel_root.name, "zbook-kernels")
 
 
 if __name__ == "__main__":

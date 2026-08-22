@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from quick_notebook.config import AppConfig
-from quick_notebook.environments import (
+from zbook.config import AppConfig
+from zbook.environments import (
     bootstrap_ipykernel,
     discover_uv_environments,
     environment_path,
@@ -59,8 +59,8 @@ class EnvironmentDiscoveryTests(unittest.TestCase):
             self.assertEqual(config.venv, venv.resolve())
             self.assertEqual(config.project_root, project)
 
-    @patch("quick_notebook.environments.subprocess.run")
-    @patch("quick_notebook.environments.shutil.which", return_value="/usr/bin/uv")
+    @patch("zbook.environments.subprocess.run")
+    @patch("zbook.environments.shutil.which", return_value="/usr/bin/uv")
     def test_bootstrap_targets_temporary_environment(
         self,
         _which: MagicMock,

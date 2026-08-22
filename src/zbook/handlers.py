@@ -1,4 +1,4 @@
-"""Small HTTP surface owned by the Quick Notebook extension."""
+"""Small HTTP surface owned by the Zbook extension."""
 
 from __future__ import annotations
 
@@ -17,19 +17,19 @@ from .uv_env import UvEnvironment, UvError, UvOperation, UvRunner
 
 
 def _config(handler: JupyterHandler) -> AppConfig:
-    return handler.settings["quick_notebook_app"].app_config
+    return handler.settings["zbook_app"].app_config
 
 
 def _app(handler: JupyterHandler) -> Any:
-    return handler.settings["quick_notebook_app"]
+    return handler.settings["zbook_app"]
 
 
 def _environment(handler: JupyterHandler) -> UvEnvironment:
-    return handler.settings["quick_notebook_app"].uv_environment
+    return handler.settings["zbook_app"].uv_environment
 
 
 def _uv_runner(handler: JupyterHandler) -> UvRunner:
-    return handler.settings["quick_notebook_app"].uv_runner
+    return handler.settings["zbook_app"].uv_runner
 
 
 def _finish_json(handler: JupyterHandler, payload: dict[str, Any], status: int = 200) -> None:
@@ -69,7 +69,7 @@ class CanonicalUrlHandler(web.RequestHandler):
 class IndexHandler(JupyterHandler):
     @web.authenticated
     async def get(self) -> None:
-        static_root = Path(self.settings["quick_notebook_static_root"])
+        static_root = Path(self.settings["zbook_static_root"])
         index = static_root / "index.html"
         if index.is_file():
             self.set_header("Content-Type", "text/html; charset=UTF-8")
@@ -81,13 +81,13 @@ class IndexHandler(JupyterHandler):
         self.finish(
             """<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Quick Notebook</title>
+<title>Zbook</title>
 <style>
   body{margin:0;background:#161819;color:#d7d9dc;font:15px ui-sans-serif,system-ui}
   main{max-width:680px;margin:14vh auto;padding:32px;border-left:2px solid #d3a65c}
   code{color:#9fc5e8;background:#202326;padding:2px 5px} p{line-height:1.6;color:#9da2a8}
 </style>
-<main><h1>Quick Notebook</h1><p>The Python server is healthy, but the web client has not
+<main><h1>Zbook</h1><p>The Python server is healthy, but the web client has not
 been built yet. Install a current Node.js release, then run <code>npm install</code> and
 <code>npm run build</code> inside <code>frontend/</code>.</p></main></html>"""
         )
@@ -105,7 +105,7 @@ class StatusHandler(APIHandler):
                 "codex": shutil.which("codex"),
             },
             "kernel": {
-                "name": "quick-notebook",
+                "name": "zbook",
                 **await inspect_ipykernel(config),
             },
         }

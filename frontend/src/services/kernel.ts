@@ -64,7 +64,7 @@ export class KernelClient {
     try {
       const model = await requestJson<KernelModel>(jupyterUrl("kernels"), {
         method: "POST",
-        body: JSON.stringify({ name: "quick-notebook", path: notebookPath }),
+        body: JSON.stringify({ name: "zbook", path: notebookPath }),
       });
       this.kernelId = model.id;
       const url = jupyterWebsocketUrl(`kernels/${model.id}/channels`);
@@ -124,7 +124,7 @@ export class KernelClient {
         msg_id: msgId,
         msg_type: "execute_request",
         session: this.sessionId,
-        username: "quick-notebook",
+        username: "zbook",
         date: new Date().toISOString(),
         version: "5.4",
       },

@@ -22,6 +22,9 @@ class CodexRequestError(RuntimeError):
     pass
 
 
+DEFAULT_REQUEST_TIMEOUT = 30.0
+
+
 def encode_message(message: dict[str, Any]) -> bytes:
     """App Server uses newline-delimited JSON-RPC messages without `jsonrpc`."""
     if "jsonrpc" in message:
@@ -65,40 +68,53 @@ class CodexAppServer:
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._read_stderr())
         try:
-            await asyncio.wait_for(
-                self.request(
-                    "initialize",
-                    {
-                        "clientInfo": {
-                            "name": "quick-notebook",
-                            "title": "Quick Notebook",
-                            "version": "0.1.0",
-                        },
-                        "capabilities": {"experimentalApi": True},
+            await self.request(
+                "initialize",
+                {
+                    "clientInfo": {
+                        "name": "zbook",
+                        "title": "Zbook",
+                        "version": "0.1.0",
                     },
-                ),
-                timeout=15,
+                    "capabilities": {"experimentalApi": True},
+                },
+                request_timeout=15,
             )
             await self.notify("initialized")
         except Exception:
             await self.close()
             raise
 
-    async def request(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def request(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
+    ) -> Any:
         if not self.running or self._process is None:
             raise CodexUnavailable("Codex App Server is not running")
         self._request_id += 1
         request_id = self._request_id
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
-        await self._write({"method": method, "id": request_id, "params": params or {}})
+        message: dict[str, Any] = {"method": method, "id": request_id}
+        if params is not None:
+            message["params"] = params
         try:
-            return await future
+            async with asyncio.timeout(request_timeout):
+                await self._write(message)
+                return await future
+        except TimeoutError as error:
+            raise CodexRequestError(f"Codex request timed out: {method}") from error
         finally:
             self._pending.pop(request_id, None)
 
     async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
-        await self._write({"method": method, "params": params or {}})
+        message: dict[str, Any] = {"method": method}
+        if params is not None:
+            message["params"] = params
+        await self._write(message)
 
     async def respond(self, request_id: int | str, result: Any) -> None:
         await self._write({"id": request_id, "result": result})
@@ -106,26 +122,54 @@ class CodexAppServer:
     async def account(self) -> Any:
         return await self.request("account/read", {"refreshToken": False})
 
+    async def models(self) -> Any:
+        return await self.request("model/list", {"limit": 100, "includeHidden": False})
+
+    async def rate_limits(self) -> Any:
+        return await self.request("account/rateLimits/read")
+
     async def start_chatgpt_login(self) -> Any:
         return await self.request("account/login/start", {"type": "chatgpt"})
 
-    async def start_thread(self) -> Any:
+    async def logout(self) -> Any:
+        return await self.request("account/logout")
+
+    async def start_thread(self, model: str | None = None) -> Any:
+        params: dict[str, Any] = {
+            "cwd": str(self.workspace),
+            "approvalPolicy": "on-request",
+            "sandbox": "workspace-write",
+            "ephemeral": True,
+            "serviceName": "zbook",
+        }
+        if model:
+            params["model"] = model
         return await self.request(
             "thread/start",
-            {
-                "cwd": str(self.workspace),
-                "approvalPolicy": "on-request",
-                "sandbox": "read-only",
-                "ephemeral": True,
-            },
+            params,
         )
 
-    async def start_turn(self, thread_id: str, prompt: str) -> Any:
+    async def start_turn(
+        self,
+        thread_id: str,
+        prompt: str,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> Any:
         if not prompt.strip():
             raise ValueError("Prompt cannot be empty")
+        params: dict[str, Any] = {
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": prompt}],
+        }
+        if model:
+            params["model"] = model
+        if effort:
+            params["effort"] = effort
         return await self.request(
             "turn/start",
-            {"threadId": thread_id, "input": [{"type": "text", "text": prompt}]},
+            params,
         )
 
     async def interrupt_turn(self, thread_id: str, turn_id: str) -> Any:

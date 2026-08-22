@@ -21,6 +21,7 @@ interface FileTreeProps {
   directories: Record<string, ContentEntry[]>;
   loadingPaths: ReadonlySet<string>;
   onLoadDirectory: (path: string, refresh?: boolean) => void;
+  onRefresh: () => void;
   onOpen: (entry: ContentEntry) => void;
   onNewNotebook: () => void;
   onNewFolder: () => void;
@@ -120,6 +121,7 @@ export function FileTree({
   directories,
   loadingPaths,
   onLoadDirectory,
+  onRefresh,
   onOpen,
   onNewNotebook,
   onNewFolder,
@@ -138,7 +140,7 @@ export function FileTree({
       <div className="panel-heading">
         <span>WORKSPACE</span>
         <span className="panel-actions">
-          <button className="icon-button" onClick={() => onLoadDirectory("", true)} aria-label="Refresh files" title="Refresh files"><RefreshIcon /></button>
+          <button className="icon-button" onClick={onRefresh} aria-label="Refresh files" title="Refresh all opened folders"><RefreshIcon /></button>
           <button className="icon-button" onClick={onNewFolder} aria-label="New folder" title="New folder"><NewFolderIcon /></button>
           <button className="icon-button" onClick={() => uploadInput.current?.click()} aria-label="Upload files" title="Upload files"><UploadIcon /></button>
           <button className="icon-button" onClick={onNewNotebook} aria-label="New notebook" title="New notebook"><PlusIcon /></button>

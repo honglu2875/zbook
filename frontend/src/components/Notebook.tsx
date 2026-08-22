@@ -119,7 +119,9 @@ export function Notebook({
                     >
                       <PlayIcon />
                     </button>
-                    <span className="execution-count">{cell.state === "running" ? "…" : cell.executionCount ?? " "}</span>
+                    <span className="execution-count">
+                      {cell.state === "running" ? "[…]" : cell.executionCount === null ? "[ ]" : `[${cell.executionCount}]`}
+                    </span>
                   </>
                 ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>}
               </div>

@@ -85,10 +85,13 @@ export default function App() {
   const revision = useRef(0);
   const savedRevision = useRef(0);
   const savePromise = useRef<Promise<boolean> | null>(null);
+  const directoriesRef = useRef(directories);
+  const directoryRequestVersions = useRef<Record<string, number>>({});
   const kernelClient = useRef<KernelClient | null>(null);
   if (kernelClient.current === null) kernelClient.current = new KernelClient(setKernelState);
   const documentRef = useRef({ cells, metadata, notebookPath, saveState });
   documentRef.current = { cells, metadata, notebookPath, saveState };
+  directoriesRef.current = directories;
 
   useEffect(() => {
     void refreshStatus();
@@ -141,21 +144,38 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  async function loadDirectory(path: string, refresh = false) {
-    if (!refresh && directories[path] !== undefined) return;
+  async function loadDirectory(path: string, refresh = false): Promise<boolean> {
+    if (!refresh && directoriesRef.current[path] !== undefined) return true;
+    const requestVersion = (directoryRequestVersions.current[path] ?? 0) + 1;
+    directoryRequestVersions.current[path] = requestVersion;
     setLoadingPaths((current) => new Set(current).add(path));
     try {
-      const entries = await listDirectory(path);
-      setDirectories((current) => ({ ...current, [path]: entries }));
+      const entries = await listDirectory(path, refresh);
+      if (directoryRequestVersions.current[path] === requestVersion) {
+        setDirectories((current) => ({ ...current, [path]: entries }));
+      }
+      return true;
     } catch (error) {
-      setNotice(`Could not load ${path || "workspace"}: ${String(error)}`);
+      if (directoryRequestVersions.current[path] === requestVersion) {
+        setNotice(`Could not load ${path || "workspace"}: ${String(error)}`);
+        return false;
+      }
+      return true;
     } finally {
-      setLoadingPaths((current) => {
-        const next = new Set(current);
-        next.delete(path);
-        return next;
-      });
+      if (directoryRequestVersions.current[path] === requestVersion) {
+        setLoadingPaths((current) => {
+          const next = new Set(current);
+          next.delete(path);
+          return next;
+        });
+      }
     }
+  }
+
+  async function refreshTree(showNotice = true) {
+    const paths = new Set(["", treeDirectory, ...Object.keys(directoriesRef.current)]);
+    const results = await Promise.all([...paths].map((path) => loadDirectory(path, true)));
+    if (showNotice && results.every(Boolean)) setNotice("File tree refreshed.");
   }
 
   function markDirty() {
@@ -256,8 +276,7 @@ export default function App() {
   }
 
   async function refreshAfterCodexChange() {
-    await loadDirectory("", true);
-    if (treeDirectory) await loadDirectory(treeDirectory, true);
+    await refreshTree(false);
     if (documentRef.current.notebookPath && documentRef.current.saveState === "saved") {
       await reloadNotebook(true);
     } else {
@@ -562,8 +581,7 @@ export default function App() {
   return (
     <div className={`app-shell ${leftOpen ? "has-left" : ""} ${rightOpen ? "has-right" : ""}`}>
       <header className="titlebar">
-        <div className="window-mark"><span /><span /><span /></div>
-        <div className="brand"><i>Q</i><span>quick-notebook</span></div>
+        <div className="brand"><i>Z</i><span>zbook</span></div>
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => setLeftOpen((value) => !value)} aria-label="Toggle files"><PanelIcon /></button>
           {kernelState === "busy" ? (
@@ -584,6 +602,7 @@ export default function App() {
           directories={directories}
           loadingPaths={loadingPaths}
           onLoadDirectory={(path, refresh) => void loadDirectory(path, refresh)}
+          onRefresh={() => void refreshTree()}
           onOpen={openEntry}
           onNewNotebook={() => void newNotebook()}
           onNewFolder={() => void newFolder()}

@@ -27,14 +27,14 @@ def build_kernel_spec(config: AppConfig) -> dict[str, Any]:
         "display_name": f"Python ({config.venv.name})",
         "language": "python",
         "env": env,
-        "metadata": {"debugger": True, "quick_notebook": True},
+        "metadata": {"debugger": True, "zbook": True},
     }
 
 
 def install_runtime_kernel_spec(config: AppConfig, runtime_dir: str | Path) -> Path:
     """Write a process-local kernelspec and return its kernel search root."""
-    kernel_root = Path(runtime_dir) / "quick-notebook-kernels"
-    resource_dir = kernel_root / "quick-notebook"
+    kernel_root = Path(runtime_dir) / "zbook-kernels"
+    resource_dir = kernel_root / "zbook"
     resource_dir.mkdir(parents=True, exist_ok=True)
     (resource_dir / "kernel.json").write_text(
         json.dumps(build_kernel_spec(config), indent=2),

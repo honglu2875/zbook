@@ -6,7 +6,7 @@ export default defineConfig({
   base: "./",
   plugins: [react()],
   build: {
-    outDir: fileURLToPath(new URL("../src/quick_notebook/static", import.meta.url)),
+    outDir: fileURLToPath(new URL("../src/zbook/static", import.meta.url)),
     emptyOutDir: true,
     sourcemap: false,
   },

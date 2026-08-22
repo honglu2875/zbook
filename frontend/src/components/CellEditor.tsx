@@ -7,7 +7,7 @@ import { vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import type { CellKind } from "../model/notebook";
-import { quickNotebookTheme } from "../editor/theme";
+import { zbookTheme } from "../editor/theme";
 
 interface CellEditorProps {
   kind: CellKind;
@@ -77,7 +77,7 @@ export function CellEditor({
         basicSetup,
         keymap.of([indentWithTab]),
         ...(kind === "code" ? [python()] : kind === "markdown" ? [markdown()] : []),
-        quickNotebookTheme,
+        zbookTheme,
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());

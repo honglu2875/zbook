@@ -1,4 +1,4 @@
-"""Jupyter Server application for Quick Notebook."""
+"""Jupyter Server application for Zbook."""
 
 from __future__ import annotations
 
@@ -35,10 +35,10 @@ from .kernel_spec import install_runtime_kernel_spec
 from .uv_env import UvEnvironment, UvRunner
 
 
-class QuickNotebookApp(ExtensionApp):
-    name = "quick-notebook"
-    extension_url = "/quick-notebook"
-    default_url = "/quick-notebook/"
+class ZbookApp(ExtensionApp):
+    name = "zbook"
+    extension_url = "/zbook"
+    default_url = "/zbook/"
     load_other_extensions = False
 
     workspace = Unicode(
@@ -50,7 +50,7 @@ class QuickNotebookApp(ExtensionApp):
         default_value="",
         help=(
             "Optional uv-managed virtual environment, absolute or relative to the workspace. "
-            "When omitted, Quick Notebook creates a temporary environment under /tmp."
+            "When omitted, Zbook creates a temporary environment under /tmp."
         ),
         config=True,
     )
@@ -101,11 +101,11 @@ class QuickNotebookApp(ExtensionApp):
         kernel_dirs = [str(kernel_root), *self.serverapp.kernel_spec_manager.kernel_dirs]
         self.serverapp.kernel_spec_manager.kernel_dirs = list(dict.fromkeys(kernel_dirs))
         self.serverapp.web_app.settings.update(
-            quick_notebook_app=self,
-            quick_notebook_config=self.app_config,
-            quick_notebook_environment=self.uv_environment,
-            quick_notebook_static_root=str(self.static_root),
-            quick_notebook_uv_runner=self.uv_runner,
+            zbook_app=self,
+            zbook_config=self.app_config,
+            zbook_environment=self.uv_environment,
+            zbook_static_root=str(self.static_root),
+            zbook_uv_runner=self.uv_runner,
             server_root_dir=root_dir,
         )
 
@@ -155,24 +155,24 @@ class QuickNotebookApp(ExtensionApp):
             self.uv_environment = UvEnvironment(config)
             install_runtime_kernel_spec(config, self.serverapp.runtime_dir)
             self.serverapp.web_app.settings.update(
-                quick_notebook_config=config,
-                quick_notebook_environment=self.uv_environment,
+                zbook_config=config,
+                zbook_environment=self.uv_environment,
             )
             return config
 
     def initialize_handlers(self) -> None:
         self.handlers.extend(
             [
-                (r"/quick-notebook", CanonicalUrlHandler),
-                (r"/quick-notebook/", IndexHandler),
-                (r"/quick-notebook/api/status", StatusHandler),
-                (r"/quick-notebook/api/environments", EnvironmentsHandler),
-                (r"/quick-notebook/api/packages", PackagesHandler),
-                (r"/quick-notebook/api/packages/([^/]+)", PackageHandler),
-                (r"/quick-notebook/api/kernel/prepare", KernelPrepareHandler),
-                (r"/quick-notebook/api/codex", CodexWebSocketHandler),
+                (r"/zbook", CanonicalUrlHandler),
+                (r"/zbook/", IndexHandler),
+                (r"/zbook/api/status", StatusHandler),
+                (r"/zbook/api/environments", EnvironmentsHandler),
+                (r"/zbook/api/packages", PackagesHandler),
+                (r"/zbook/api/packages/([^/]+)", PackageHandler),
+                (r"/zbook/api/kernel/prepare", KernelPrepareHandler),
+                (r"/zbook/api/codex", CodexWebSocketHandler),
                 (
-                    r"/quick-notebook/assets/(.*)",
+                    r"/zbook/assets/(.*)",
                     StaticFileHandler,
                     {"path": str(self.static_root / "assets")},
                 ),
@@ -207,4 +207,4 @@ class QuickNotebookApp(ExtensionApp):
 
 
 def main() -> None:
-    QuickNotebookApp.launch_instance()
+    ZbookApp.launch_instance()
