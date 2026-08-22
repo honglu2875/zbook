@@ -619,6 +619,10 @@ export default function App() {
       if (!current.notebookPath) {
         return { success: false, result: { error: "No notebook is open in Zbook." } };
       }
+      if (args.includeSource !== undefined && typeof args.includeSource !== "boolean") {
+        return { success: false, result: { error: "includeSource must be a boolean." } };
+      }
+      const includeSource = args.includeSource !== false;
       return {
         success: true,
         result: {
@@ -626,12 +630,13 @@ export default function App() {
           documentRevision: revision.current,
           selectedCellId: selectedId || null,
           saveState: current.saveState,
+          sourceIncluded: includeSource,
           cells: current.cells.map((cell, index) => ({
             index,
             id: cell.id,
             cellType: cell.kind,
-            source: cell.source,
             executionCount: cell.executionCount,
+            ...(includeSource ? { source: cell.source } : {}),
           })),
         },
       };

@@ -118,8 +118,52 @@ export function applyNotebookOperations(
       affected.add(removed.id);
       continue;
     }
+    if (op === "move_after") {
+      const index = cellIndex(cells, operation.cellId, `operations[${operationIndex}].cellId`);
+      const moving = cells[index];
+      let afterCellId: string | null = null;
+      if (operation.afterCellId !== null) {
+        afterCellId = requiredString(
+          operation.afterCellId,
+          `operations[${operationIndex}].afterCellId`,
+          200,
+        );
+        if (afterCellId === moving.id) {
+          throw new NotebookToolInputError(
+            `operations[${operationIndex}].afterCellId cannot identify the cell being moved.`,
+          );
+        }
+        cellIndex(cells, afterCellId, `operations[${operationIndex}].afterCellId`);
+      }
+      cells.splice(index, 1);
+      const insertionIndex = afterCellId === null
+        ? 0
+        : cellIndex(cells, afterCellId, `operations[${operationIndex}].afterCellId`) + 1;
+      cells.splice(insertionIndex, 0, moving);
+      affected.add(moving.id);
+      continue;
+    }
+    if (op === "swap") {
+      const index = cellIndex(cells, operation.cellId, `operations[${operationIndex}].cellId`);
+      const otherIndex = cellIndex(
+        cells,
+        operation.otherCellId,
+        `operations[${operationIndex}].otherCellId`,
+      );
+      if (index === otherIndex) {
+        throw new NotebookToolInputError(
+          `operations[${operationIndex}].otherCellId must identify a different cell.`,
+        );
+      }
+      const firstId = cells[index].id;
+      const otherId = cells[otherIndex].id;
+      [cells[index], cells[otherIndex]] = [cells[otherIndex], cells[index]];
+      affected.add(firstId);
+      affected.add(otherId);
+      continue;
+    }
     throw new NotebookToolInputError(
-      `operations[${operationIndex}].op must be replace_source, set_kind, insert_after, or delete.`,
+      `operations[${operationIndex}].op must be replace_source, set_kind, insert_after, delete, move_after, or swap.`,
     );
   }
 

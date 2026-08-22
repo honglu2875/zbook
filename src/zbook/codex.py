@@ -28,6 +28,8 @@ NOTEBOOK_TOOL_INSTRUCTIONS = """You are embedded in Zbook. When reading or chang
 notebook, use zbook_notebook_read and zbook_notebook_apply instead of editing the .ipynb file with
 shell commands or apply_patch. Read immediately before editing and pass its notebookPath and
 documentRevision as expectedRevision. If an edit reports a conflict, read again before retrying.
+For a reorder-only task, read with includeSource false, then use move_after or swap operations in
+zbook_notebook_apply without resending cell source.
 Shell tools remain appropriate for non-notebook workspace files."""
 
 NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
@@ -37,11 +39,18 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
         "description": (
             "Read the notebook currently open in the Zbook UI, including stable cell IDs and the "
             "document revision needed for edits. Use this instead of reading the .ipynb with shell "
-            "commands. Takes an empty object."
+            "commands. Set includeSource to false for reorder-only work to avoid loading cell "
+            "contents into context; it defaults to true."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "includeSource": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Include each cell's source. Use false for reordering only.",
+                }
+            },
             "additionalProperties": False,
         },
     },
@@ -105,6 +114,34 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
                                 "properties": {
                                     "op": {"const": "delete"},
                                     "cellId": {"type": "string"},
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "description": (
+                                    "Move cellId immediately after afterCellId. A null "
+                                    "afterCellId moves it to the beginning."
+                                ),
+                                "required": ["op", "cellId", "afterCellId"],
+                                "properties": {
+                                    "op": {"const": "move_after"},
+                                    "cellId": {"type": "string"},
+                                    "afterCellId": {"type": ["string", "null"]},
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "description": (
+                                    "Exchange the positions of two cells without changing either "
+                                    "cell's content, outputs, or metadata."
+                                ),
+                                "required": ["op", "cellId", "otherCellId"],
+                                "properties": {
+                                    "op": {"const": "swap"},
+                                    "cellId": {"type": "string"},
+                                    "otherCellId": {"type": "string"},
                                 },
                             },
                         ]

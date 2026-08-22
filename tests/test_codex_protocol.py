@@ -106,6 +106,22 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
                 {"zbook_notebook_read", "zbook_notebook_apply"},
             )
 
+    def test_notebook_tools_expose_source_light_reordering(self) -> None:
+        tools = {tool["name"]: tool for tool in NOTEBOOK_DYNAMIC_TOOLS}
+        read_schema = tools["zbook_notebook_read"]["inputSchema"]
+        self.assertEqual(read_schema["properties"]["includeSource"]["type"], "boolean")
+        self.assertTrue(read_schema["properties"]["includeSource"]["default"])
+
+        operation_schemas = tools["zbook_notebook_apply"]["inputSchema"]["properties"][
+            "operations"
+        ]["items"]["oneOf"]
+        operations = {schema["properties"]["op"]["const"] for schema in operation_schemas}
+        self.assertEqual(
+            operations,
+            {"replace_source", "set_kind", "insert_after", "delete", "move_after", "swap"},
+        )
+        self.assertIn("includeSource false", NOTEBOOK_TOOL_INSTRUCTIONS)
+
     async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             client = CodexAppServer(Path(directory))
