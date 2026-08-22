@@ -14,13 +14,17 @@ interface NotebookProps {
   saveState: SaveState;
   canRun: boolean;
   locked: boolean;
+  codexChangedCellIds: string[];
+  codexUndoAvailable: boolean;
   onSelect: (id: string) => void;
   onEdit: (id: string) => void;
   onChange: (id: string, source: string) => void;
   onChangeKind: (id: string, kind: CellKind) => void;
   onDelete: (id: string) => void;
   onRun: (id: string, advance: boolean, insert: boolean) => void;
-  onAdd: (kind: CellKind) => void;
+  onAddAfter: (id: string, kind: CellKind) => void;
+  onReviewCodexChange: () => void;
+  onUndoCodexChange: () => void;
   onSave: () => void;
   onExport: () => void;
   onReload: () => void;
@@ -61,13 +65,17 @@ export function Notebook({
   saveState,
   canRun,
   locked,
+  codexChangedCellIds,
+  codexUndoAvailable,
   onSelect,
   onEdit,
   onChange,
   onChangeKind,
   onDelete,
   onRun,
-  onAdd,
+  onAddAfter,
+  onReviewCodexChange,
+  onUndoCodexChange,
   onSave,
   onExport,
   onReload,
@@ -95,13 +103,24 @@ export function Notebook({
             <button onClick={onExport} title="Export .ipynb"><DownloadIcon />Export</button>
           </div>
         </div>
+        {codexChangedCellIds.length > 0 && (
+          <section className="codex-edit-review" aria-live="polite">
+            <div><span>✦</span><strong>Codex changed {codexChangedCellIds.length} cell{codexChangedCellIds.length === 1 ? "" : "s"}</strong></div>
+            <div>
+              <button type="button" onClick={onReviewCodexChange}>Review</button>
+              <button type="button" onClick={onUndoCodexChange} disabled={!codexUndoAvailable}>Undo</button>
+            </div>
+          </section>
+        )}
         {cells.map((cell) => {
           const selected = selectedId === cell.id;
           const editing = editingId === cell.id;
+          const changedByCodex = codexChangedCellIds.includes(cell.id);
           return (
+            <div className="notebook-cell-group" key={cell.id}>
             <article
-              key={cell.id}
-              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${locked ? "is-locked" : ""}`}
+              data-cell-id={cell.id}
+              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${locked ? "is-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""}`}
               tabIndex={0}
               onFocus={() => onSelect(cell.id)}
               onClick={() => onSelect(cell.id)}
@@ -169,12 +188,13 @@ export function Notebook({
                 )}
               </div>
             </article>
+            <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>
+              <button disabled={locked} onClick={() => onAddAfter(cell.id, "code")}><span>+</span> Code</button>
+              <button disabled={locked} onClick={() => onAddAfter(cell.id, "markdown")}><span>+</span> Markdown</button>
+            </div>
+            </div>
           );
         })}
-        <div className="add-cell-controls">
-          <button disabled={locked} onClick={() => onAdd("code")}><span>+</span> Code</button>
-          <button disabled={locked} onClick={() => onAdd("markdown")}><span>+</span> Markdown</button>
-        </div>
         <div className="notebook-spacer" />
       </div>
     </main>

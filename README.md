@@ -10,6 +10,8 @@ The main notebook loop is functional:
 
 - the file tree is served by Jupyter's Contents API and is rooted at the configured workspace;
 - notebooks can be created, opened in closable tabs, renamed inline by double-clicking a tab, deleted, uploaded, autosaved, and exported as `.ipynb`;
+- open tabs, the active notebook, selected cell, panel visibility, and Vim preference are restored per workspace;
+- `Ctrl/Cmd-P` opens a workspace file picker and `Ctrl/Cmd-Shift-P` opens the command palette;
 - the workspace and Codex panes are draggable, keyboard-resizable, and remember their widths across reloads;
 - refreshing the workspace also reloads the active notebook from disk (after confirming before discarding local unsaved changes);
 - folders can be selected and created, and arbitrary files can be uploaded;
@@ -22,9 +24,11 @@ The main notebook loop is functional:
 - the Codex panel uses the locally signed-in Codex CLI and ChatGPT subscription—no application API key—and streams turns through Codex App Server;
 - Codex receives optional notebook/cell context and exposes live command/file activity plus any required approvals;
 - Codex gets dedicated read/apply cell tools: notebook edits go directly through React, are revision-checked, briefly lock the editor, apply atomically, and save without a shell/edit/refresh round trip;
+- each Codex cell edit gets an in-notebook review marker and a safe one-step undo until the notebook changes again;
 - the Codex pane reads the installed CLI's model catalog and subscription rate limits, defaults to GPT-5.6-Luna with medium reasoning when available, and provides model/effort pickers, quota refresh, sign-in, and sign-out.
+- Zbook-created Codex threads persist through App Server, are remembered per workspace, and can be resumed from the compact thread switcher without showing unrelated CLI sessions.
 
-This is still a focused checkpoint, not a JupyterLab replacement. Tabs share one workspace kernel and save before switching; non-notebook files are managed but not edited; Jupyter widgets and arbitrary JavaScript outputs are not supported; and Codex threads are currently ephemeral.
+This is still a focused checkpoint, not a JupyterLab replacement. Tabs share one workspace kernel and save before switching; non-notebook files are managed but not edited; and Jupyter widgets and arbitrary JavaScript outputs are not supported.
 
 ## Architecture
 
@@ -88,7 +92,7 @@ The same choice can be changed from the environment panel while the app is runni
 - `Shift-Escape` leaves an editor and enters notebook navigation mode.
 - `j` / `k` or the arrow keys move between cells in navigation mode.
 - `Enter` or `i` edits the selected cell.
-- `o` inserts a code cell below.
+- `a` inserts a code cell above; `b` or `o` inserts one below. Hover or keyboard-focus the space between cells to choose Code or Markdown explicitly.
 - `Ctrl-Enter` runs in place, `Shift-Enter` runs and advances, and `Alt-Enter` runs and inserts.
 - Vim bindings can be toggled from the status bar. Vim receives its keymap before the standard CodeMirror keymaps.
 

@@ -16,7 +16,12 @@ from zbook.codex import (
     CodexRequestError,
     encode_message,
 )
-from zbook.codex_handler import choose_default_model, dynamic_tool_response, prompt_with_context
+from zbook.codex_handler import (
+    choose_default_model,
+    dynamic_tool_response,
+    prompt_with_context,
+    thread_messages,
+)
 
 
 class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
@@ -81,7 +86,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(choose_default_model(models), ("gpt-5.6-luna", "medium"))
 
-    async def test_thread_starts_workspace_write_and_ephemeral(self) -> None:
+    async def test_thread_starts_workspace_write_and_persistent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             client = CodexAppServer(Path(directory))
             client.request = AsyncMock(return_value={})  # type: ignore[method-assign]
@@ -93,13 +98,66 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(params["approvalPolicy"], "on-request")
             self.assertEqual(params["model"], "gpt-5.6-terra")
             self.assertEqual(params["serviceName"], "zbook")
-            self.assertTrue(params["ephemeral"])
+            self.assertFalse(params["ephemeral"])
             self.assertEqual(params["dynamicTools"], NOTEBOOK_DYNAMIC_TOOLS)
             self.assertEqual(params["developerInstructions"], NOTEBOOK_TOOL_INSTRUCTIONS)
             self.assertEqual(
                 {tool["name"] for tool in params["dynamicTools"]},
                 {"zbook_notebook_read", "zbook_notebook_apply"},
             )
+
+    async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            client = CodexAppServer(Path(directory))
+            client.request = AsyncMock(return_value={})  # type: ignore[method-assign]
+
+            await client.read_thread("thread-1")
+            await client.resume_thread("thread-1", "gpt-5.6-luna")
+
+            calls = client.request.await_args_list
+            self.assertEqual(
+                calls[0].args,
+                ("thread/read", {"threadId": "thread-1", "includeTurns": True}),
+            )
+            self.assertEqual(calls[1].args[0], "thread/resume")
+            self.assertEqual(calls[1].args[1]["threadId"], "thread-1")
+            self.assertEqual(calls[1].args[1]["model"], "gpt-5.6-luna")
+            self.assertEqual(calls[1].args[1]["dynamicTools"], NOTEBOOK_DYNAMIC_TOOLS)
+
+    def test_thread_messages_extracts_only_user_and_agent_text(self) -> None:
+        messages = thread_messages(
+            {
+                "turns": [
+                    {
+                        "items": [
+                            {
+                                "id": "user-1",
+                                "type": "userMessage",
+                                "content": [{"type": "text", "text": "Explain this"}],
+                            },
+                            {"id": "cmd-1", "type": "commandExecution", "command": "pwd"},
+                            {
+                                "id": "agent-1",
+                                "type": "agentMessage",
+                                "text": "Here is the explanation.",
+                            },
+                        ]
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(
+            messages,
+            [
+                {"id": "user-1", "role": "user", "text": "Explain this"},
+                {
+                    "id": "agent-1",
+                    "role": "assistant",
+                    "text": "Here is the explanation.",
+                },
+            ],
+        )
 
     def test_dynamic_tool_response_matches_app_server_shape(self) -> None:
         response = dynamic_tool_response(True, {"documentRevision": 7, "saved": True})

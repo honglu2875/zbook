@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import type { NotebookCell } from "../model/notebook";
 import type { NotebookToolResponse } from "../model/notebookTools";
 import { websocketUrl } from "../services/http";
-import { ChevronIcon, CloseIcon, RefreshIcon, SparkIcon, StopIcon } from "./icons";
+import { ChevronIcon, CloseIcon, HistoryIcon, RefreshIcon, SparkIcon, StopIcon } from "./icons";
 
 type MessageRole = "user" | "assistant" | "activity";
 type ConnectionState = "checking" | "connecting" | "ready" | "error";
@@ -13,6 +13,19 @@ interface Message {
   role: MessageRole;
   text: string;
   pending?: boolean;
+  welcome?: boolean;
+}
+
+interface StoredThread {
+  id: string;
+  title: string;
+  updatedAt: number;
+}
+
+interface WorkspaceThreadStore {
+  workspace: string | null;
+  activeId: string | null;
+  threads: StoredThread[];
 }
 
 interface Approval {
@@ -71,6 +84,7 @@ interface CodexEvent {
 
 interface CodexPanelProps {
   available: boolean | null;
+  workspace: string | null;
   notebookPath: string | null;
   selectedCell: NotebookCell | null;
   onBeforePrompt: () => Promise<boolean>;
@@ -90,13 +104,63 @@ interface QuotaView {
 const MODEL_STORAGE = "zbook.codex.model.v2";
 const EFFORT_STORAGE = "zbook.codex.effort";
 const WEEK_MINUTES = 7 * 24 * 60;
+const THREAD_STORE_VERSION = 1;
+const MAX_STORED_THREADS = 30;
 
 function initialMessages(): Message[] {
   return [{
     id: crypto.randomUUID(),
     role: "assistant",
     text: "I can work in this workspace and edit the open notebook directly through Zbook's cell tools.",
+    welcome: true,
   }];
+}
+
+function threadStorageKey(workspace: string): string {
+  return `zbook.codex.threads.v${THREAD_STORE_VERSION}:${workspace}`;
+}
+
+function loadThreadStore(workspace: string): WorkspaceThreadStore {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(threadStorageKey(workspace)) ?? "null") as {
+      activeId?: unknown;
+      threads?: unknown;
+    } | null;
+    const threads = Array.isArray(parsed?.threads)
+      ? parsed.threads.flatMap((item): StoredThread[] => {
+        if (!item || typeof item !== "object") return [];
+        const record = item as Record<string, unknown>;
+        if (typeof record.id !== "string" || typeof record.title !== "string") return [];
+        return [{
+          id: record.id,
+          title: record.title.slice(0, 120) || "Untitled thread",
+          updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,
+        }];
+      }).slice(0, MAX_STORED_THREADS)
+      : [];
+    const activeId = typeof parsed?.activeId === "string"
+      && threads.some((thread) => thread.id === parsed.activeId)
+      ? parsed.activeId
+      : null;
+    return { workspace, activeId, threads };
+  } catch {
+    return { workspace, activeId: null, threads: [] };
+  }
+}
+
+function titleFromPrompt(prompt: string): string {
+  const firstLine = prompt.trim().split("\n", 1)[0].replace(/\s+/g, " ");
+  return firstLine.length > 52 ? `${firstLine.slice(0, 49)}…` : firstLine || "Untitled thread";
+}
+
+function threadTime(timestamp: number): string {
+  if (!timestamp) return "Earlier";
+  const date = new Date(timestamp);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function errorDetail(value: unknown): string {
@@ -199,6 +263,7 @@ function itemRecord(params: Record<string, unknown>): Record<string, unknown> | 
 
 export function CodexPanel({
   available,
+  workspace,
   notebookPath,
   selectedCell,
   onBeforePrompt,
@@ -216,6 +281,12 @@ export function CodexPanel({
   const [rateLimits, setRateLimits] = useState<RateLimitsState | null>(null);
   const [quotaProblem, setQuotaProblem] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [threadOpen, setThreadOpen] = useState(false);
+  const [threadStore, setThreadStore] = useState<WorkspaceThreadStore>({
+    workspace: null,
+    activeId: null,
+    threads: [],
+  });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("Ready");
@@ -231,8 +302,48 @@ export function CodexPanel({
   const modelsRef = useRef<CodexModel[]>([]);
   const modelRef = useRef("");
   const effortRef = useRef("");
+  const activeThreadRef = useRef<string | null>(null);
+  const boundThreadRef = useRef<string | null>(null);
+  const pendingThreadTitle = useRef<string | null>(null);
   const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onNotebookToolCall });
   callbacks.current = { onBeforePrompt, onWorkspaceChanged, onNotebookToolCall };
+  activeThreadRef.current = threadStore.activeId;
+
+  useEffect(() => {
+    if (!workspace) {
+      setThreadStore({ workspace: null, activeId: null, threads: [] });
+      activeThreadRef.current = null;
+      return;
+    }
+    const stored = loadThreadStore(workspace);
+    activeThreadRef.current = stored.activeId;
+    boundThreadRef.current = null;
+    setThreadStore(stored);
+    setMessages(initialMessages());
+  }, [workspace]);
+
+  useEffect(() => {
+    if (!workspace || threadStore.workspace !== workspace) return;
+    try {
+      window.localStorage.setItem(threadStorageKey(workspace), JSON.stringify({
+        activeId: threadStore.activeId,
+        threads: threadStore.threads,
+      }));
+    } catch {
+      // Thread persistence is optional when browser storage is unavailable.
+    }
+  }, [threadStore, workspace]);
+
+  useEffect(() => {
+    if (!accountOpen && !threadOpen) return;
+    function closePopover(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setAccountOpen(false);
+      setThreadOpen(false);
+    }
+    window.addEventListener("keydown", closePopover);
+    return () => window.removeEventListener("keydown", closePopover);
+  }, [accountOpen, threadOpen]);
 
   useEffect(() => {
     if (available === null) {
@@ -263,6 +374,7 @@ export function CodexPanel({
     socket.onclose = () => {
       if (socketRef.current === socket) {
         socketRef.current = null;
+        boundThreadRef.current = null;
         setConnection("error");
         setStage("Disconnected");
         setBusy(false);
@@ -279,6 +391,7 @@ export function CodexPanel({
     };
     return () => {
       if (socketRef.current === socket) socketRef.current = null;
+      boundThreadRef.current = null;
       socket.close();
     };
   }, [available]);
@@ -336,6 +449,34 @@ export function CodexPanel({
       role: "assistant",
       text,
     }]);
+  }
+
+  function updateThreadStore(
+    updater: (current: WorkspaceThreadStore) => WorkspaceThreadStore,
+  ) {
+    setThreadStore((current) => {
+      if (current.workspace !== workspace) return current;
+      const next = updater(current);
+      activeThreadRef.current = next.activeId;
+      return next;
+    });
+  }
+
+  function upsertThread(threadId: string, title?: string, updatedAt = Date.now()) {
+    updateThreadStore((current) => {
+      const existing = current.threads.find((thread) => thread.id === threadId);
+      const entry: StoredThread = {
+        id: threadId,
+        title: title?.trim() || existing?.title || "Untitled thread",
+        updatedAt,
+      };
+      return {
+        ...current,
+        activeId: threadId,
+        threads: [entry, ...current.threads.filter((thread) => thread.id !== threadId)]
+          .slice(0, MAX_STORED_THREADS),
+      };
+    });
   }
 
   function beginAssistantItem(itemId: string): string {
@@ -584,7 +725,8 @@ export function CodexPanel({
       return;
     }
     if (message.type === "ready") {
-      setAccount(message.account as AccountState);
+      const nextAccount = message.account as AccountState;
+      setAccount(nextAccount);
       const catalog = Array.isArray(message.models)
         ? message.models as CodexModel[]
         : modelsRef.current;
@@ -598,7 +740,77 @@ export function CodexPanel({
       setConnection("ready");
       setStage("Ready");
       setProblem(modelError);
-      if ((message.account as AccountState)?.account) setLoginUrl(null);
+      if (nextAccount?.account) setLoginUrl(null);
+      const storedThread = activeThreadRef.current;
+      const authenticated = !nextAccount?.requiresOpenaiAuth || Boolean(nextAccount?.account);
+      if (!authenticated) boundThreadRef.current = null;
+      if (authenticated && storedThread && boundThreadRef.current !== storedThread) {
+        setBusy(true);
+        setStage("Restoring thread");
+        socket.send(JSON.stringify({
+          type: "resumeThread",
+          threadId: storedThread,
+          model: modelRef.current || null,
+        }));
+      }
+      return;
+    }
+    if (message.type === "thread") {
+      const threadId = typeof message.threadId === "string" ? message.threadId : null;
+      boundThreadRef.current = threadId;
+      if (threadId) {
+        upsertThread(threadId, pendingThreadTitle.current ?? undefined);
+        pendingThreadTitle.current = null;
+      }
+      return;
+    }
+    if (message.type === "threadRestored") {
+      const threadId = typeof message.threadId === "string" ? message.threadId : null;
+      if (!threadId) return;
+      const history = Array.isArray(message.messages)
+        ? message.messages.flatMap((item): Message[] => {
+          if (!item || typeof item !== "object") return [];
+          const record = item as Record<string, unknown>;
+          if ((record.role !== "user" && record.role !== "assistant")
+            || typeof record.text !== "string") return [];
+          return [{
+            id: typeof record.id === "string" ? record.id : crypto.randomUUID(),
+            role: record.role,
+            text: record.text,
+          }];
+        })
+        : [];
+      const thread = message.thread && typeof message.thread === "object"
+        ? message.thread as Record<string, unknown>
+        : {};
+      const title = typeof thread.name === "string" && thread.name.trim()
+        ? thread.name
+        : typeof thread.preview === "string" && thread.preview.trim()
+          ? titleFromPrompt(thread.preview)
+          : undefined;
+      boundThreadRef.current = threadId;
+      upsertThread(threadId, title);
+      setMessages(history.length ? history : initialMessages());
+      setBusy(false);
+      setStage("Ready");
+      setProblem(null);
+      setThreadOpen(false);
+      return;
+    }
+    if (message.type === "threadUnavailable") {
+      const threadId = typeof message.threadId === "string" ? message.threadId : null;
+      if (threadId) {
+        updateThreadStore((current) => ({
+          ...current,
+          activeId: current.activeId === threadId ? null : current.activeId,
+          threads: current.threads.filter((thread) => thread.id !== threadId),
+        }));
+      }
+      boundThreadRef.current = null;
+      setMessages(initialMessages());
+      setBusy(false);
+      setStage("Ready");
+      setProblem(`That saved Codex thread is no longer available. ${String(message.message ?? "")}`.trim());
       return;
     }
     if (message.type === "rateLimits") {
@@ -675,6 +887,8 @@ export function CodexPanel({
       return;
     }
     const assistantId = crypto.randomUUID();
+    if (!activeThreadRef.current) pendingThreadTitle.current = titleFromPrompt(clean);
+    else upsertThread(activeThreadRef.current);
     activeAssistant.current = assistantId;
     agentMessages.current.clear();
     setMessages((current) => [
@@ -718,7 +932,45 @@ export function CodexPanel({
     setStage("Ready");
     setApprovals([]);
     streamedActivity.current.clear();
+    boundThreadRef.current = null;
+    pendingThreadTitle.current = null;
+    updateThreadStore((current) => ({ ...current, activeId: null }));
+    setThreadOpen(false);
     setMessages(initialMessages());
+  }
+
+  function resumeThread(threadId: string) {
+    const socket = socketRef.current;
+    if (busy || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (boundThreadRef.current === threadId) {
+      setThreadOpen(false);
+      return;
+    }
+    updateThreadStore((current) => ({ ...current, activeId: threadId }));
+    boundThreadRef.current = null;
+    activeAssistant.current = null;
+    agentMessages.current.clear();
+    streamedActivity.current.clear();
+    setApprovals([]);
+    setMessages([]);
+    setBusy(true);
+    setStage("Restoring thread");
+    setProblem(null);
+    socket.send(JSON.stringify({
+      type: "resumeThread",
+      threadId,
+      model: modelRef.current || null,
+    }));
+  }
+
+  function forgetThread(threadId: string) {
+    const wasActive = activeThreadRef.current === threadId;
+    updateThreadStore((current) => ({
+      ...current,
+      activeId: wasActive ? null : current.activeId,
+      threads: current.threads.filter((thread) => thread.id !== threadId),
+    }));
+    if (wasActive) newThread();
   }
 
   function refreshAccount() {
@@ -730,6 +982,7 @@ export function CodexPanel({
     if (!window.confirm("Sign out of the Codex CLI on this machine?")) return;
     setAccountRefreshing(true);
     setAccountOpen(false);
+    boundThreadRef.current = null;
     socketRef.current?.send(JSON.stringify({ type: "logout" }));
   }
 
@@ -745,63 +998,115 @@ export function CodexPanel({
   const cellLabel = selectedCell ? `${selectedCell.kind} cell` : null;
   const quotaPercent = quota ? displayPercent(quota.remaining) : "—";
   const resetCredits = rateLimits?.rateLimitResetCredits?.availableCount ?? 0;
+  const currentThread = threadStore.threads.find((thread) => thread.id === threadStore.activeId);
+  const compactModel = (currentModel?.displayName || selectedModel || "Model")
+    .replace(/^gpt[- ]?5(?:\.\d+)?[- ]?/i, "")
+    .trim();
 
   return (
     <aside className="codex-panel" aria-label="Codex assistant">
       <div className="codex-heading">
-        <span><SparkIcon />CODEX</span>
-        <div className="codex-heading-actions">
-          {connection === "ready" && <button onClick={newThread} disabled={busy} title="New Codex thread">new thread</button>}
-          <span className={`connection-state ${ready ? "is-ready" : ""}`}>
-            <i />{connection === "checking" ? "checking" : connection === "connecting" ? "connecting" : ready ? accountLabel ?? "ready" : "attention"}
+        <span className="codex-brand">
+          <SparkIcon />CODEX
+          <i
+            className={`connection-dot ${ready ? "is-ready" : ""}`}
+            title={connection === "checking" ? "Checking Codex" : connection === "connecting" ? "Connecting to Codex" : ready ? `${accountLabel ?? "Codex"} connected` : "Codex needs attention"}
+          />
+          <span className="sr-only" role="status" aria-live="polite">
+            {connection === "checking" ? "Checking Codex" : connection === "connecting" ? "Connecting to Codex" : ready ? "Codex connected" : "Codex needs attention"}
           </span>
+        </span>
+        <div className="codex-heading-actions">
+          <button
+            className={`thread-summary ${threadOpen ? "is-open" : ""}`}
+            onClick={() => {
+              setThreadOpen((value) => !value);
+              setAccountOpen(false);
+            }}
+            disabled={connection !== "ready"}
+            aria-expanded={threadOpen}
+            aria-haspopup="dialog"
+            aria-label={`Codex threads${currentThread ? `, current: ${currentThread.title}` : ""}`}
+            title={currentThread?.title ?? "Codex thread history"}
+          ><HistoryIcon /><span>{threadStore.threads.length || ""}</span></button>
+          <button
+            className={`codex-session-summary ${accountOpen ? "is-open" : ""}`}
+            onClick={() => {
+              setAccountOpen((value) => !value);
+              setThreadOpen(false);
+            }}
+            disabled={connection !== "ready"}
+            aria-expanded={accountOpen}
+            aria-haspopup="dialog"
+            title="Model, reasoning, account, and quota"
+          >
+            <span>{compactModel || "Model"}</span>
+            <em>{selectedEffort ? selectedEffort.slice(0, 1).toUpperCase() : "–"}</em>
+            <strong>{quotaPercent}</strong>
+            <ChevronIcon />
+          </button>
         </div>
       </div>
-      <div className="codex-controls">
-        <label className="codex-select codex-model-select" title={currentModel?.description}>
-          <span>MODEL</span>
-          <select
-            aria-label="Codex model"
-            value={selectedModel}
-            onChange={(event) => setModelSelection(event.target.value, models, effortRef.current)}
-            disabled={!ready || busy || models.length === 0}
-          >
-            {models.map((model) => <option value={modelValue(model)} key={model.id}>{model.displayName}</option>)}
-          </select>
-        </label>
-        <label className="codex-select codex-effort-select">
-          <span>THINKING</span>
-          <select
-            aria-label="Codex reasoning effort"
-            value={selectedEffort}
-            onChange={(event) => {
-              effortRef.current = event.target.value;
-              setSelectedEffort(event.target.value);
-              storeValue(EFFORT_STORAGE, event.target.value);
-            }}
-            disabled={!ready || busy || efforts.length === 0}
-          >
-            {efforts.map((effort) => <option value={effort} key={effort}>{effort}</option>)}
-          </select>
-        </label>
-        <button
-          className={`quota-summary ${accountOpen ? "is-open" : ""}`}
-          onClick={() => setAccountOpen((value) => !value)}
-          disabled={connection !== "ready"}
-          aria-expanded={accountOpen}
-          title="Codex account and quota"
-        >
-          <span>{quota?.weekly ? "WEEK" : "QUOTA"}</span>
-          <strong>{quotaPercent}</strong>
-          <ChevronIcon />
-        </button>
-      </div>
+      {threadOpen && (
+        <section className="codex-thread-popover" role="dialog" aria-label="Zbook Codex threads">
+          <header>
+            <div><strong>Threads</strong><span>This workspace</span></div>
+            <button type="button" onClick={newThread} disabled={busy}><span>+</span> New</button>
+          </header>
+          <div className="thread-list">
+            {threadStore.threads.length ? threadStore.threads.map((thread) => (
+              <div className={`thread-row ${thread.id === threadStore.activeId ? "is-active" : ""}`} key={thread.id}>
+                <button type="button" onClick={() => resumeThread(thread.id)} disabled={busy}>
+                  <span>{thread.title}</span><em>{threadTime(thread.updatedAt)}</em>
+                </button>
+                <button
+                  type="button"
+                  className="thread-forget"
+                  onClick={() => forgetThread(thread.id)}
+                  disabled={busy}
+                  aria-label={`Forget ${thread.title}`}
+                  title="Remove from Zbook history"
+                ><CloseIcon /></button>
+              </div>
+            )) : <p>No saved Zbook threads yet.</p>}
+          </div>
+          <footer>Only sessions started from Zbook appear here.</footer>
+        </section>
+      )}
       {accountOpen && (
-        <section className="codex-account-popover" aria-label="Codex account details">
+        <section className="codex-account-popover" role="dialog" aria-label="Codex settings and account">
           <header>
             <div><i>{account?.account?.type === "chatgpt" ? "C" : "A"}</i><span><strong>{accountName}</strong><em>{accountLabel ? `${accountLabel} plan · local CLI` : "Local Codex CLI"}</em></span></div>
             <button onClick={() => setAccountOpen(false)} aria-label="Close account details"><CloseIcon /></button>
           </header>
+          <div className="codex-settings-fields">
+            <label title={currentModel?.description}>
+              <span>Model</span>
+              <select
+                aria-label="Codex model"
+                value={selectedModel}
+                onChange={(event) => setModelSelection(event.target.value, models, effortRef.current)}
+                disabled={!ready || busy || models.length === 0}
+              >
+                {models.map((model) => <option value={modelValue(model)} key={model.id}>{model.displayName}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Reasoning</span>
+              <select
+                aria-label="Codex reasoning effort"
+                value={selectedEffort}
+                onChange={(event) => {
+                  effortRef.current = event.target.value;
+                  setSelectedEffort(event.target.value);
+                  storeValue(EFFORT_STORAGE, event.target.value);
+                }}
+                disabled={!ready || busy || efforts.length === 0}
+              >
+                {efforts.map((effort) => <option value={effort} key={effort}>{effort}</option>)}
+              </select>
+            </label>
+          </div>
           {signedIn ? (
             <>
               <div className="quota-detail">
@@ -840,12 +1145,12 @@ export function CodexPanel({
             {loginUrl && <a href={loginUrl} target="_blank" rel="noreferrer">Continue sign-in ↗</a>}
           </div>
         )}
-        {messages.map((message, index) => (
+        {messages.map((message) => (
           <div className={`message message-${message.role}`} key={message.id}>
             <span>{message.role === "assistant" ? "CODEX" : message.role === "user" ? "YOU" : "ACTIVITY"}</span>
             {message.role === "assistant" ? <ReactMarkdown>{message.text}</ReactMarkdown> : <pre>{message.text}</pre>}
             {message.pending && !message.text && <i className="codex-thinking" />}
-            {message.role === "assistant" && index === 0 && (
+            {message.welcome && (
               <div className="suggestions">
                 <button disabled={!ready || busy} onClick={() => void sendPrompt("Explain the selected cell")}>Explain this cell</button>
                 <button disabled={!ready || busy} onClick={() => void sendPrompt("Find the error in the selected cell")}>Find the error</button>
@@ -878,16 +1183,17 @@ export function CodexPanel({
             }
           }}
           placeholder={ready ? "Ask about or change this notebook…" : "Connect Codex to start…"}
+          aria-label="Message Codex"
           rows={3}
           disabled={!ready || busy}
         />
         <div className="prompt-actions">
-          <button type="button" className={`context-button ${includeContext ? "is-active" : ""}`} onClick={() => setIncludeContext((value) => !value)}>@ context</button>
+          <button type="button" className={`context-button ${includeContext ? "is-active" : ""}`} onClick={() => setIncludeContext((value) => !value)} aria-pressed={includeContext}>@ context</button>
           <span className={busy ? "is-busy" : ""}>{busy ? stage : "↵ send · ⇧↵ newline"}</span>
           {busy ? (
             <button type="button" className="send-button stop-codex" onClick={() => { setStage("Stopping"); socketRef.current?.send(JSON.stringify({ type: "interrupt" })); }} title="Stop Codex"><StopIcon /></button>
           ) : (
-            <button type="submit" className="send-button" disabled={!prompt.trim() || !ready}>↑</button>
+            <button type="submit" className="send-button" disabled={!prompt.trim() || !ready} aria-label="Send to Codex">↑</button>
           )}
         </div>
       </form>

@@ -95,6 +95,55 @@ def dynamic_tool_response(success: bool, result: Any) -> dict[str, Any]:
     }
 
 
+def _message_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+    return "\n".join(part for part in parts if part)
+
+
+def thread_messages(thread: Any) -> list[dict[str, str]]:
+    """Reduce a persisted App Server thread to the conversation shown by Zbook."""
+    if not isinstance(thread, dict) or not isinstance(thread.get("turns"), list):
+        return []
+    messages: list[dict[str, str]] = []
+    for turn_index, turn in enumerate(thread["turns"]):
+        if not isinstance(turn, dict) or not isinstance(turn.get("items"), list):
+            continue
+        for item_index, item in enumerate(turn["items"]):
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type == "userMessage":
+                role = "user"
+                text = _message_content_text(item.get("content"))
+            elif item_type == "agentMessage":
+                role = "assistant"
+                text = item.get("text") if isinstance(item.get("text"), str) else ""
+            else:
+                continue
+            if not text.strip():
+                continue
+            item_id = item.get("id")
+            messages.append(
+                {
+                    "id": item_id
+                    if isinstance(item_id, str)
+                    else f"history-{turn_index}-{item_index}",
+                    "role": role,
+                    "text": text,
+                }
+            )
+    return messages
+
+
 class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
     """Expose one workspace-scoped Codex conversation to the local web client."""
 
@@ -165,7 +214,13 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
             if self.thread_id is None:
                 result = await self.codex.start_thread(model)
                 self.thread_id = result["thread"]["id"]
-                await self._send({"type": "thread", "threadId": self.thread_id})
+                await self._send(
+                    {
+                        "type": "thread",
+                        "threadId": self.thread_id,
+                        "thread": result.get("thread"),
+                    }
+                )
             result = await self.codex.start_turn(
                 self.thread_id,
                 prompt_with_context(prompt, message.get("context")),
@@ -227,6 +282,48 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
             self.thread_id = None
             self.turn_id = None
             await self._send({"type": "thread", "threadId": None})
+            return
+        if message_type == "resumeThread":
+            if self.turn_id is not None:
+                raise ValueError("Stop the active Codex turn before switching threads")
+            thread_id = message.get("threadId")
+            if not isinstance(thread_id, str) or not thread_id.strip() or len(thread_id) > 200:
+                raise ValueError("A valid Codex thread ID is required")
+            model, _ = self._resolve_settings(message)
+            try:
+                history_result = await self.codex.read_thread(thread_id)
+                resume_result = await self.codex.resume_thread(thread_id, model)
+                resumed_thread = resume_result.get("thread", {})
+                resumed_id = resumed_thread.get("id")
+                if not isinstance(resumed_id, str):
+                    raise RuntimeError("Codex did not return a resumed thread ID")
+                history_thread = history_result.get("thread", {})
+                self.thread_id = resumed_id
+                self.turn_id = None
+                await self._send(
+                    {
+                        "type": "threadRestored",
+                        "threadId": resumed_id,
+                        "thread": {
+                            "id": resumed_id,
+                            "name": history_thread.get("name"),
+                            "preview": history_thread.get("preview"),
+                            "updatedAt": history_thread.get("updatedAt"),
+                        },
+                        "messages": thread_messages(history_thread),
+                    }
+                )
+            except Exception as error:
+                self.log.warning("Could not resume Codex thread %s: %s", thread_id, error)
+                self.thread_id = None
+                self.turn_id = None
+                await self._send(
+                    {
+                        "type": "threadUnavailable",
+                        "threadId": thread_id,
+                        "message": str(error),
+                    }
+                )
             return
         raise ValueError(f"Unknown Codex message type: {message_type!r}")
 

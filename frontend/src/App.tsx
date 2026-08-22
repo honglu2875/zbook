@@ -7,9 +7,10 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { CodexPanel } from "./components/CodexPanel";
+import { CommandPalette, type PaletteCommand, type PaletteFile } from "./components/CommandPalette";
 import { EnvironmentPanel } from "./components/EnvironmentPanel";
 import { FileTree } from "./components/FileTree";
-import { BranchIcon, CloseIcon, PanelIcon, PlayIcon, PlusIcon, StopIcon } from "./components/icons";
+import { BranchIcon, CloseIcon, PanelIcon, PlayIcon, PlusIcon, SearchIcon, StopIcon } from "./components/icons";
 import { Notebook, type SaveState } from "./components/Notebook";
 import {
   cellsFromNotebook,
@@ -64,6 +65,25 @@ interface ServerStatus {
   };
 }
 
+interface WorkspaceSession {
+  openTabs: string[];
+  activePath: string | null;
+  selectedByNotebook: Record<string, string>;
+  treeDirectory: string;
+  leftOpen: boolean;
+  rightOpen: boolean;
+  vimEnabled: boolean;
+}
+
+interface CodexEditReview {
+  notebookPath: string;
+  affectedCellIds: string[];
+  beforeCells: NotebookCell[];
+  beforeMetadata: Record<string, unknown>;
+  beforeSelectedId: string;
+  afterRevision: number;
+}
+
 type PaneSide = "left" | "right";
 
 const LEFT_PANE_DEFAULT = 226;
@@ -75,6 +95,7 @@ const RIGHT_PANE_MAX = 620;
 const MIN_NOTEBOOK_WIDTH = 360;
 const LEFT_PANE_STORAGE = "zbook.layout.leftWidth";
 const RIGHT_PANE_STORAGE = "zbook.layout.rightWidth";
+const WORKSPACE_SESSION_VERSION = 1;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
@@ -111,6 +132,53 @@ function isSameOrChild(path: string, parent: string): boolean {
   return path === parent || path.startsWith(`${parent}/`);
 }
 
+function workspaceSessionKey(workspace: string): string {
+  return `zbook.workspace.session.v${WORKSPACE_SESSION_VERSION}:${workspace}`;
+}
+
+function loadWorkspaceSession(workspace: string): WorkspaceSession {
+  const fallback: WorkspaceSession = {
+    openTabs: [],
+    activePath: null,
+    selectedByNotebook: {},
+    treeDirectory: "",
+    leftOpen: true,
+    rightOpen: true,
+    vimEnabled: true,
+  };
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(workspaceSessionKey(workspace)) ?? "null") as Record<string, unknown> | null;
+    if (!parsed) return fallback;
+    const openTabs = Array.isArray(parsed.openTabs)
+      ? [...new Set(parsed.openTabs.filter((path): path is string => (
+        typeof path === "string" && path.toLowerCase().endsWith(".ipynb")
+      )))]
+      : [];
+    const selectedByNotebook = parsed.selectedByNotebook && typeof parsed.selectedByNotebook === "object"
+      ? Object.fromEntries(Object.entries(parsed.selectedByNotebook as Record<string, unknown>)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      : {};
+    const activePath = typeof parsed.activePath === "string" && openTabs.includes(parsed.activePath)
+      ? parsed.activePath
+      : openTabs[0] ?? null;
+    return {
+      openTabs,
+      activePath,
+      selectedByNotebook,
+      treeDirectory: typeof parsed.treeDirectory === "string" ? parsed.treeDirectory : "",
+      leftOpen: typeof parsed.leftOpen === "boolean" ? parsed.leftOpen : true,
+      rightOpen: typeof parsed.rightOpen === "boolean" ? parsed.rightOpen : true,
+      vimEnabled: typeof parsed.vimEnabled === "boolean" ? parsed.vimEnabled : true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function cloneDocumentValue<T>(value: T): T {
+  return structuredClone(value);
+}
+
 export default function App() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
@@ -145,6 +213,11 @@ export default function App() {
   const [kernelState, setKernelState] = useState<KernelState>("disconnected");
   const [busy, setBusy] = useState(false);
   const [notebookToolLocked, setNotebookToolLocked] = useState(false);
+  const [codexEditReview, setCodexEditReview] = useState<CodexEditReview | null>(null);
+  const [workspaceSessionReady, setWorkspaceSessionReady] = useState(false);
+  const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
+  const [paletteFiles, setPaletteFiles] = useState<PaletteFile[]>([]);
+  const [paletteLoading, setPaletteLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const revision = useRef(0);
   const savedRevision = useRef(0);
@@ -154,6 +227,8 @@ export default function App() {
   const openTabsRef = useRef(openTabs);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const directoryRequestVersions = useRef<Record<string, number>>({});
+  const selectedByNotebook = useRef<Record<string, string>>({});
+  const restoredWorkspace = useRef<string | null>(null);
   const kernelClient = useRef<KernelClient | null>(null);
   if (kernelClient.current === null) kernelClient.current = new KernelClient(setKernelState);
   const documentRef = useRef({ cells, metadata, notebookPath, saveState });
@@ -165,6 +240,63 @@ export default function App() {
     void refreshStatus();
     void loadDirectory("", true);
   }, []);
+
+  useEffect(() => {
+    const workspace = status?.config.workspace;
+    if (!workspace || restoredWorkspace.current === workspace) return;
+    restoredWorkspace.current = workspace;
+    setWorkspaceSessionReady(false);
+    const session = loadWorkspaceSession(workspace);
+    selectedByNotebook.current = session.selectedByNotebook;
+    openTabsRef.current = session.openTabs;
+    setOpenTabs(session.openTabs);
+    setTreeDirectory(session.treeDirectory);
+    setLeftOpen(session.leftOpen);
+    setRightOpen(session.rightOpen);
+    setVimEnabled(session.vimEnabled);
+    let cancelled = false;
+    void (async () => {
+      const candidates = [session.activePath, ...session.openTabs]
+        .filter((path, index, values): path is string => Boolean(path) && values.indexOf(path) === index);
+      let restored = false;
+      const unavailable = new Set<string>();
+      for (const path of candidates) {
+        if (await loadNotebookDocument(path, false, session.selectedByNotebook[path])) {
+          restored = true;
+          break;
+        }
+        unavailable.add(path);
+      }
+      const remainingTabs = session.openTabs.filter((path) => !unavailable.has(path));
+      openTabsRef.current = remainingTabs;
+      setOpenTabs(remainingTabs);
+      if (!restored) resetNotebookDocument();
+      if (!cancelled) setWorkspaceSessionReady(true);
+    })();
+    return () => { cancelled = true; };
+  }, [status?.config.workspace]);
+
+  useEffect(() => {
+    const workspace = status?.config.workspace;
+    if (!workspace || !workspaceSessionReady || restoredWorkspace.current !== workspace) return;
+    const selections = { ...selectedByNotebook.current };
+    if (notebookPath && selectedId) selections[notebookPath] = selectedId;
+    selectedByNotebook.current = selections;
+    const session: WorkspaceSession = {
+      openTabs,
+      activePath: notebookPath,
+      selectedByNotebook: selections,
+      treeDirectory,
+      leftOpen,
+      rightOpen,
+      vimEnabled,
+    };
+    try {
+      window.localStorage.setItem(workspaceSessionKey(workspace), JSON.stringify(session));
+    } catch {
+      // Session restoration is optional when browser storage is unavailable.
+    }
+  }, [leftOpen, notebookPath, openTabs, rightOpen, selectedId, status?.config.workspace, treeDirectory, vimEnabled, workspaceSessionReady]);
 
   useEffect(() => () => {
     void kernelClient.current?.shutdown();
@@ -179,6 +311,11 @@ export default function App() {
 
   useEffect(() => {
     function handleGlobalKeys(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        openCommandPalette(event.shiftKey ? "commands" : "files");
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void persistNotebook();
@@ -198,9 +335,12 @@ export default function App() {
         event.preventDefault();
         setEditingId(selectedId);
         setMode(vimEnabled ? "NORMAL" : "INSERT");
-      } else if (event.key === "o") {
+      } else if (event.key.toLowerCase() === "o" || event.key.toLowerCase() === "b") {
         event.preventDefault();
         insertAfter(selectedId, "code");
+      } else if (event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        insertBefore(selectedId, "code");
       }
     }
     window.addEventListener("keydown", handleGlobalKeys);
@@ -259,6 +399,63 @@ export default function App() {
       await reloadNotebook();
     } else if (treeRefreshed) {
       setNotice("Workspace refreshed.");
+    }
+  }
+
+  async function collectWorkspaceFiles() {
+    setPaletteLoading(true);
+    const files = new Map<string, PaletteFile>();
+    const queue = [""];
+    const visited = new Set<string>();
+    const skippedDirectories = new Set([".git", ".venv", "node_modules", ".ipynb_checkpoints"]);
+    try {
+      while (queue.length && visited.size < 240 && files.size < 1_000) {
+        const batch = queue.splice(0, 6).filter((path) => !visited.has(path));
+        batch.forEach((path) => visited.add(path));
+        const listings = await Promise.all(batch.map(async (path) => {
+          const cached = directoriesRef.current[path];
+          if (cached) return [path, cached] as const;
+          try {
+            const entries = await listDirectory(path);
+            setDirectories((current) => ({ ...current, [path]: entries }));
+            return [path, entries] as const;
+          } catch {
+            return [path, []] as const;
+          }
+        }));
+        for (const [, entries] of listings) {
+          for (const entry of entries) {
+            if (entry.type === "directory") {
+              if (!skippedDirectories.has(entry.name)) queue.push(entry.path);
+            } else {
+              files.set(entry.path, { path: entry.path, type: entry.type });
+            }
+          }
+        }
+        setPaletteFiles([...files.values()]);
+      }
+    } finally {
+      setPaletteFiles([...files.values()].sort((left, right) => left.path.localeCompare(right.path)));
+      setPaletteLoading(false);
+    }
+  }
+
+  function openCommandPalette(nextMode: "files" | "commands") {
+    setPaletteMode(nextMode);
+    if (nextMode !== "files") return;
+    const known = new Map<string, PaletteFile>();
+    Object.values(directoriesRef.current).flat().forEach((entry) => {
+      if (entry.type !== "directory") known.set(entry.path, { path: entry.path, type: entry.type });
+    });
+    setPaletteFiles([...known.values()]);
+    void collectWorkspaceFiles();
+  }
+
+  function openPaletteFile(file: PaletteFile) {
+    if (file.type === "notebook" || file.path.toLowerCase().endsWith(".ipynb")) {
+      void openNotebook(file.path);
+    } else {
+      setNotice(`${basename(file.path)} is indexed, but text-file editing is not implemented yet.`);
     }
   }
 
@@ -357,6 +554,7 @@ export default function App() {
       setEditingId(null);
       setMode("NAV");
       setSaveState(notebook.cells.length === 0 ? "dirty" : "saved");
+      setCodexEditReview(null);
       setNotice(fromExternalChange ? "Reloaded workspace changes from Codex." : "Reloaded from disk.");
     } catch (error) {
       setNotice(`Could not reload ${path}: ${String(error)}`);
@@ -476,6 +674,14 @@ export default function App() {
         ?? applied.affectedCellIds.find((id) => applied.cells.some((cell) => cell.id === id))
         ?? (applied.cells.some((cell) => cell.id === selectedId) ? selectedId : applied.cells[0].id);
       setSelectedId(nextSelected);
+      setCodexEditReview({
+        notebookPath: current.notebookPath,
+        affectedCellIds: applied.affectedCellIds,
+        beforeCells: cloneDocumentValue(current.cells),
+        beforeMetadata: cloneDocumentValue(current.metadata),
+        beforeSelectedId: selectedId,
+        afterRevision: nextRevision,
+      });
       setNotice(`Codex updated ${applied.affectedCellIds.length} notebook cell${applied.affectedCellIds.length === 1 ? "" : "s"}.`);
       return {
         success: true,
@@ -486,6 +692,7 @@ export default function App() {
           insertedCellIds: applied.insertedCellIds,
           cellCount: applied.cells.length,
           saved: true,
+          undoAvailable: true,
         },
       };
     } catch (error) {
@@ -510,6 +717,7 @@ export default function App() {
     setEditingId(null);
     setMode("NAV");
     setSaveState("saved");
+    setCodexEditReview(null);
     revision.current += 1;
     savedRevision.current = revision.current;
   }
@@ -525,7 +733,11 @@ export default function App() {
     return true;
   }
 
-  async function loadNotebookDocument(path: string, rememberTab: boolean): Promise<boolean> {
+  async function loadNotebookDocument(
+    path: string,
+    rememberTab: boolean,
+    preferredSelectedId?: string,
+  ): Promise<boolean> {
     setBusy(true);
     try {
       const model = await readNotebook(path);
@@ -537,10 +749,17 @@ export default function App() {
       setTreeDirectory(parentPath(path));
       setCells(loadedCells);
       setMetadata(notebook.metadata ?? {});
-      setSelectedId(loadedCells[0].id);
-      setEditingId(loadedCells[0].kind === "markdown" ? null : loadedCells[0].id);
+      const requestedSelection = preferredSelectedId ?? selectedByNotebook.current[path];
+      const restoredSelection = requestedSelection
+        && loadedCells.some((cell) => cell.id === requestedSelection)
+        ? requestedSelection
+        : loadedCells[0].id;
+      selectedByNotebook.current[path] = restoredSelection;
+      setSelectedId(restoredSelection);
+      setEditingId(null);
       setMode("NAV");
       setSaveState(notebook.cells.length === 0 ? "dirty" : "saved");
+      setCodexEditReview(null);
       if (rememberTab) rememberOpenTab(path);
       return true;
     } catch (error) {
@@ -677,6 +896,12 @@ export default function App() {
         openTabsRef.current = next;
         return next;
       });
+      selectedByNotebook.current = Object.fromEntries(
+        Object.entries(selectedByNotebook.current).map(([path, cellId]) => [
+          isSameOrChild(path, entryPath) ? `${newPath}${path.slice(entryPath.length)}` : path,
+          cellId,
+        ]),
+      );
       if (treeDirectory === entryPath || treeDirectory.startsWith(`${entryPath}/`)) {
         setTreeDirectory(`${newPath}${treeDirectory.slice(entryPath.length)}`);
       }
@@ -733,6 +958,10 @@ export default function App() {
     try {
       if (containsActive && !(await ensureDocumentSaved())) return;
       await deleteEntry(entry.path);
+      selectedByNotebook.current = Object.fromEntries(
+        Object.entries(selectedByNotebook.current)
+          .filter(([path]) => !isSameOrChild(path, entry.path)),
+      );
       setOpenTabs(remainingTabs);
       if (containsActive) {
         resetNotebookDocument();
@@ -757,6 +986,7 @@ export default function App() {
       setEditingId(null);
       setMode("NAV");
     }
+    if (notebookPath) selectedByNotebook.current[notebookPath] = id;
     setSelectedId(id);
   }
 
@@ -795,6 +1025,74 @@ export default function App() {
     });
     setSelectedId(cell.id);
     setEditingId(cell.id);
+  }
+
+  function insertBefore(id: string, kind: CellKind) {
+    if (notebookToolLockedRef.current) return;
+    const cell = newCell(kind);
+    updateCells((current) => {
+      const index = current.findIndex((item) => item.id === id);
+      const next = [...current];
+      next.splice(index < 0 ? 0 : index, 0, cell);
+      return next;
+    });
+    setSelectedId(cell.id);
+    setEditingId(cell.id);
+  }
+
+  function reviewCodexEdit() {
+    if (!codexEditReview || codexEditReview.notebookPath !== notebookPath) return;
+    const cellId = codexEditReview.affectedCellIds.find((id) => cells.some((cell) => cell.id === id))
+      ?? cells[0]?.id;
+    if (!cellId) return;
+    selectCell(cellId);
+    setEditingId(null);
+    setMode("NAV");
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-cell-id="${cellId}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  async function undoCodexEdit() {
+    const review = codexEditReview;
+    if (!review || review.notebookPath !== documentRef.current.notebookPath) return;
+    if (review.afterRevision !== revision.current) {
+      setNotice("The notebook changed after the Codex edit, so its one-step undo is no longer safe.");
+      return;
+    }
+    notebookToolLockedRef.current = true;
+    setNotebookToolLocked(true);
+    setSaveState("saving");
+    try {
+      const restoredCells = cloneDocumentValue(review.beforeCells);
+      const restoredMetadata = cloneDocumentValue(review.beforeMetadata);
+      await saveNotebook(review.notebookPath, notebookFromCells(restoredCells, restoredMetadata));
+      const nextRevision = revision.current + 1;
+      revision.current = nextRevision;
+      savedRevision.current = nextRevision;
+      documentRef.current = {
+        cells: restoredCells,
+        metadata: restoredMetadata,
+        notebookPath: review.notebookPath,
+        saveState: "saved",
+      };
+      setCells(restoredCells);
+      setMetadata(restoredMetadata);
+      const nextSelected = restoredCells.some((cell) => cell.id === review.beforeSelectedId)
+        ? review.beforeSelectedId
+        : restoredCells[0].id;
+      setSelectedId(nextSelected);
+      setSaveState("saved");
+      setCodexEditReview(null);
+      setNotice("Undid the latest Codex notebook change.");
+    } catch (error) {
+      setSaveState("error");
+      setNotice(`Could not undo the Codex change: ${String(error)}`);
+    } finally {
+      notebookToolLockedRef.current = false;
+      setNotebookToolLocked(false);
+    }
   }
 
   function applyExecution(id: string, result: ExecutionResult, state: "running" | "idle" | "error") {
@@ -976,6 +1274,76 @@ export default function App() {
     "--left-pane-width": `${leftPaneWidth}px`,
     "--right-pane-width": `${rightPaneWidth}px`,
   } as CSSProperties;
+  const paletteCommands: PaletteCommand[] = [
+    {
+      id: "notebook.new",
+      label: "New notebook",
+      detail: `Create in ${treeDirectory || "workspace root"}`,
+      shortcut: "",
+      run: () => void newNotebook(),
+    },
+    {
+      id: "notebook.save",
+      label: "Save notebook",
+      detail: notebookPath ?? "No notebook open",
+      shortcut: "⌘S",
+      disabled: !notebookPath || saveState === "saving",
+      run: () => void persistNotebook(),
+    },
+    {
+      id: "notebook.runAll",
+      label: "Run all cells",
+      detail: "Execute code cells from top to bottom",
+      disabled: !notebookPath || !status?.kernel.ready || kernelState === "busy",
+      run: () => void runAll(),
+    },
+    {
+      id: "workspace.refresh",
+      label: "Refresh workspace",
+      detail: "Reload the file tree and active notebook",
+      run: () => void refreshWorkspace(),
+    },
+    {
+      id: "environment.select",
+      label: "Select Python environment",
+      detail: status?.config.venv ?? "Choose a uv environment",
+      disabled: !status,
+      run: () => setEnvironmentOpen(true),
+    },
+    {
+      id: "panel.workspace",
+      label: `${leftOpen ? "Hide" : "Show"} workspace panel`,
+      detail: "Toggle the file tree",
+      run: () => setLeftOpen((value) => !value),
+    },
+    {
+      id: "panel.codex",
+      label: `${rightOpen ? "Hide" : "Show"} Codex panel`,
+      detail: "Toggle the assistant",
+      run: () => setRightOpen((value) => !value),
+    },
+    {
+      id: "codex.focus",
+      label: "Focus Codex prompt",
+      detail: "Open Codex and move focus to its prompt",
+      run: () => {
+        setRightOpen(true);
+        window.requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".prompt-box textarea")?.focus());
+      },
+    },
+    {
+      id: "editor.vim",
+      label: `${vimEnabled ? "Disable" : "Enable"} Vim bindings`,
+      detail: "Code and raw cell editor keybindings",
+      run: () => setVimEnabled((value) => !value),
+    },
+    {
+      id: "help.keys",
+      label: "Show keyboard shortcuts",
+      detail: "Notebook navigation and app commands",
+      run: () => setNotice("Keys: ⌘/Ctrl-P quick open · ⇧⌘/Ctrl-P commands · J/K select · A/B insert · Enter edit · ⌘/Ctrl-S save"),
+    },
+  ];
   return (
     <div
       className={`app-shell ${leftOpen ? "has-left" : ""} ${rightOpen ? "has-right" : ""}`}
@@ -985,6 +1353,7 @@ export default function App() {
         <div className="brand"><i><span>Z</span></i><span>zbook</span></div>
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => setLeftOpen((value) => !value)} aria-label="Toggle files"><PanelIcon /></button>
+          <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title="Quick open (Ctrl/Cmd-P)"><SearchIcon /></button>
           {kernelState === "busy" ? (
             <button className="run-all" onClick={() => void interruptKernel()}><StopIcon />Interrupt</button>
           ) : (
@@ -1128,6 +1497,13 @@ export default function App() {
             saveState={saveState}
             canRun={Boolean(status?.kernel.ready) && !notebookToolLocked && kernelState !== "busy" && kernelState !== "starting"}
             locked={notebookToolLocked}
+            codexChangedCellIds={codexEditReview?.notebookPath === notebookPath ? codexEditReview.affectedCellIds : []}
+            codexUndoAvailable={Boolean(
+              codexEditReview
+              && codexEditReview.notebookPath === notebookPath
+              && codexEditReview.afterRevision === revision.current
+              && !notebookToolLocked
+            )}
             onSelect={selectCell}
             onEdit={(id) => {
               if (notebookToolLockedRef.current) return;
@@ -1139,7 +1515,9 @@ export default function App() {
             onChangeKind={changeCellKind}
             onDelete={deleteCell}
             onRun={runCell}
-            onAdd={(kind) => insertAfter(cells.at(-1)?.id ?? selectedId, kind)}
+            onAddAfter={insertAfter}
+            onReviewCodexChange={reviewCodexEdit}
+            onUndoCodexChange={() => void undoCodexEdit()}
             onSave={() => void persistNotebook()}
             onExport={exportNotebook}
             onReload={() => void reloadNotebook()}
@@ -1171,6 +1549,7 @@ export default function App() {
       {rightOpen && (
         <CodexPanel
           available={status ? Boolean(status.tools.codex) : null}
+          workspace={status?.config.workspace ?? null}
           notebookPath={notebookPath}
           selectedCell={cells.find((cell) => cell.id === selectedId) ?? null}
           onBeforePrompt={ensureDocumentSaved}
@@ -1189,6 +1568,16 @@ export default function App() {
           onSelect={changeEnvironment}
         />
       )}
+      {paletteMode && (
+        <CommandPalette
+          mode={paletteMode}
+          files={paletteFiles}
+          commands={paletteCommands}
+          loading={paletteLoading}
+          onOpenFile={openPaletteFile}
+          onClose={() => setPaletteMode(null)}
+        />
+      )}
       <footer className="statusbar">
         <div><BranchIcon />main</div>
         <button onClick={() => setVimEnabled((value) => !value)} className={vimEnabled ? "status-enabled" : ""}>
@@ -1200,8 +1589,8 @@ export default function App() {
         <span>kernel: {kernelState}</span>
         <span>{notebookPath ?? "No notebook"}</span>
       </footer>
-      {busy && <div className="busy-indicator"><i />Working…</div>}
-      {notice && <button className="notice" onClick={() => setNotice(null)}>{notice}</button>}
+      {busy && <div className="busy-indicator" role="status" aria-live="polite"><i />Working…</div>}
+      {notice && <button className="notice" role="status" aria-live="polite" onClick={() => setNotice(null)}>{notice}</button>}
     </div>
   );
 }

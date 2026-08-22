@@ -225,21 +225,36 @@ class CodexAppServer:
     async def logout(self) -> Any:
         return await self.request("account/logout")
 
-    async def start_thread(self, model: str | None = None) -> Any:
+    def _thread_params(self, model: str | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {
             "cwd": str(self.workspace),
             "approvalPolicy": "on-request",
             "sandbox": "workspace-write",
-            "ephemeral": True,
             "serviceName": "zbook",
             "developerInstructions": NOTEBOOK_TOOL_INSTRUCTIONS,
             "dynamicTools": NOTEBOOK_DYNAMIC_TOOLS,
         }
         if model:
             params["model"] = model
+        return params
+
+    async def start_thread(self, model: str | None = None) -> Any:
+        params = self._thread_params(model)
+        params["ephemeral"] = False
         return await self.request(
             "thread/start",
             params,
+        )
+
+    async def resume_thread(self, thread_id: str, model: str | None = None) -> Any:
+        params = self._thread_params(model)
+        params["threadId"] = thread_id
+        return await self.request("thread/resume", params)
+
+    async def read_thread(self, thread_id: str) -> Any:
+        return await self.request(
+            "thread/read",
+            {"threadId": thread_id, "includeTurns": True},
         )
 
     async def start_turn(

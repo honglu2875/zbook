@@ -61,3 +61,9 @@ export const NewFolderIcon = (props: IconProps) => (
 export const CloseIcon = (props: IconProps) => (
   <Icon {...props}><path d="m4 4 8 8M12 4l-8 8" /></Icon>
 );
+export const HistoryIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M2.25 4.5V1.75M2.25 4.5H5M2.25 4.5A6 6 0 1 1 2 10" /><path d="M8 4.5V8l2.5 1.5" /></Icon>
+);
+export const SearchIcon = (props: IconProps) => (
+  <Icon {...props}><circle cx="6.75" cy="6.75" r="4.5" /><path d="m10.25 10.25 3.5 3.5" /></Icon>
+);
