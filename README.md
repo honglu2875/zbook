@@ -93,3 +93,7 @@ The same choice can be changed from the environment panel while the app is runni
 - Vim bindings can be toggled from the status bar. Vim receives its keymap before the standard CodeMirror keymaps.
 
 This two-level model avoids the classic conflict between Vim's modes and notebook-level commands: notebook navigation is a separate outer mode, and Vim operates only inside the active editor.
+
+## License
+
+Zbook is released under the [MIT License](LICENSE). The bundled Inter and JetBrains Mono fonts remain under the SIL Open Font License 1.1; their [notices](frontend/public/font-licenses.txt) ship with the frontend.
