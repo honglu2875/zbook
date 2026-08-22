@@ -59,6 +59,88 @@ class CliTests(unittest.TestCase):
 
     @patch("zbook.cli._launch")
     @patch("zbook.cli._preflight_run", return_value=True)
+    def test_run_accepts_first_class_network_options_and_warns_for_remote_bind(
+        self,
+        _preflight: object,
+        launch: object,
+    ) -> None:
+        temporary, workspace = self.make_workspace()
+        self.addCleanup(temporary.cleanup)
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            status = main(
+                [
+                    "run",
+                    "--workspace-dir",
+                    str(workspace),
+                    "--ip",
+                    "0.0.0.0",
+                    "--port",
+                    "8890",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        launch.assert_called_once_with(
+            [
+                f"--ZbookApp.workspace={workspace}",
+                "--ServerApp.ip=0.0.0.0",
+                "--ServerApp.port=8890",
+            ]
+        )
+        self.assertIn("listen on all network interfaces", stderr.getvalue())
+        self.assertIn("keep Jupyter authentication enabled", stderr.getvalue())
+
+    @patch("zbook.cli._launch")
+    @patch("zbook.cli._preflight_run", return_value=True)
+    def test_run_does_not_warn_for_loopback_bind(
+        self,
+        _preflight: object,
+        launch: object,
+    ) -> None:
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            status = main(["run", "--ip", "::1"])
+
+        self.assertEqual(status, 0)
+        self.assertNotIn("Remote clients", stderr.getvalue())
+        launch.assert_called_once_with(
+            [f"--ZbookApp.workspace={Path.cwd().resolve()}", "--ServerApp.ip=::1"]
+        )
+
+    @patch("zbook.cli._launch")
+    @patch("zbook.cli._preflight_run", return_value=True)
+    def test_remote_bind_warning_also_covers_jupyter_passthrough(
+        self,
+        _preflight: object,
+        launch: object,
+    ) -> None:
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            status = main(["run", "--", "--ServerApp.ip=0.0.0.0"])
+
+        self.assertEqual(status, 0)
+        self.assertIn("listen on all network interfaces", stderr.getvalue())
+        launch.assert_called_once_with(
+            ["--ServerApp.ip=0.0.0.0", f"--ZbookApp.workspace={Path.cwd().resolve()}"]
+        )
+
+    @patch("zbook.cli._launch")
+    def test_run_rejects_out_of_range_port(self, launch: object) -> None:
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            main(["run", "--port", "70000"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("port must be between 0 and 65535", stderr.getvalue())
+        launch.assert_not_called()
+
+    @patch("zbook.cli._launch")
+    @patch("zbook.cli._preflight_run", return_value=True)
     def test_run_warns_and_accepts_forgotten_passthrough(
         self,
         _preflight: object,

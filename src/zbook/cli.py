@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import ipaddress
 import os
 import shlex
 import shutil
@@ -165,6 +166,16 @@ def run_checks(stdout: TextIO | None = None) -> int:
     return 0
 
 
+def _port_number(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("port must be an integer") from error
+    if not 0 <= port <= 65_535:
+        raise argparse.ArgumentTypeError("port must be between 0 and 65535")
+    return port
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="zbook",
@@ -183,7 +194,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "run",
         help="start Zbook",
         description="Start Zbook with the current directory as its default workspace.",
-        epilog="Pass Jupyter options after `--`, for example: zbook run -- --ServerApp.port=8890",
+        epilog=(
+            "Common network options are first class: zbook run --ip 0.0.0.0 --port 8890\n"
+            "Pass other Jupyter options after `--`: zbook run -- --ServerApp.log_level=DEBUG"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         allow_abbrev=False,
     )
     run_parser.add_argument(
@@ -192,6 +207,17 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help="directory shown in the workspace tree (default: current directory)",
+    )
+    run_parser.add_argument(
+        "--ip",
+        metavar="ADDRESS",
+        help="address to listen on (Jupyter default: localhost)",
+    )
+    run_parser.add_argument(
+        "--port",
+        type=_port_number,
+        metavar="PORT",
+        help="port to listen on (0 selects an available port)",
     )
     return parser
 
@@ -209,6 +235,53 @@ def _uses_legacy_workspace(arguments: Sequence[str]) -> bool:
     return any(
         argument == "--ZbookApp.workspace" or argument.startswith("--ZbookApp.workspace=")
         for argument in arguments
+    )
+
+
+def _configured_ip(arguments: Sequence[str]) -> str | None:
+    configured: str | None = None
+    names = ("--ip", "--ServerApp.ip")
+    for index, argument in enumerate(arguments):
+        for name in names:
+            if argument.startswith(f"{name}="):
+                configured = argument.partition("=")[2]
+            elif argument == name and index + 1 < len(arguments):
+                candidate = arguments[index + 1]
+                if not candidate.startswith("--"):
+                    configured = candidate
+    return configured
+
+
+def _remote_bind_description(address: str | None) -> str | None:
+    if address is None:
+        return None
+    normalized = address.strip().lower()
+    if normalized in {"localhost", "localhost."}:
+        return None
+    candidate = normalized.removeprefix("[").removesuffix("]")
+    try:
+        parsed = ipaddress.ip_address(candidate)
+    except ValueError:
+        if candidate in {"", "*"}:
+            return "all network interfaces"
+        return f"the non-loopback address {address!r}"
+    if parsed.is_loopback:
+        return None
+    if parsed.is_unspecified:
+        return "all network interfaces"
+    return f"the non-loopback address {address!r}"
+
+
+def _warn_remote_bind(arguments: Sequence[str], stderr: TextIO | None = None) -> None:
+    stream = stderr or sys.stderr
+    description = _remote_bind_description(_configured_ip(arguments))
+    if description is None:
+        return
+    _notice(
+        "WARNING",
+        f"Zbook will listen on {description}. Remote clients that authenticate can execute "
+        "notebook code and access the workspace and Codex; keep Jupyter authentication enabled.",
+        stream,
     )
 
 
@@ -290,19 +363,21 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     jupyter_arguments = [*forgotten_passthrough, *explicit_passthrough]
     workspace_option: Path | None = options.workspace_dir
-    if workspace_option is None and _uses_legacy_workspace(jupyter_arguments):
-        launch_arguments = jupyter_arguments
-    else:
+    launch_arguments = list(jupyter_arguments)
+    if not (workspace_option is None and _uses_legacy_workspace(jupyter_arguments)):
         workspace = (workspace_option or Path.cwd()).expanduser().resolve()
         if not workspace.is_dir():
             _notice("ERROR", f"workspace is not a directory: {workspace}", sys.stderr)
             return 2
-        launch_arguments = [
-            *jupyter_arguments,
-            f"--ZbookApp.workspace={workspace}",
-        ]
+        launch_arguments.append(f"--ZbookApp.workspace={workspace}")
+
+    if options.ip is not None:
+        launch_arguments.append(f"--ServerApp.ip={options.ip}")
+    if options.port is not None:
+        launch_arguments.append(f"--ServerApp.port={options.port}")
 
     if not _preflight_run():
         return 1
+    _warn_remote_bind(launch_arguments)
     _launch(launch_arguments)
     return 0

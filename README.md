@@ -84,15 +84,17 @@ The installed command has a small preflight check and a dedicated launch command
 zbook check
 zbook run
 zbook run --workspace-dir /absolute/path/to/workspace
+zbook run --ip 0.0.0.0 --port 8888
 ```
 
-`zbook run` uses the current directory as its workspace. The default kernel environment is a disposable uv venv under `/tmp`; a persistent uv environment can be selected from the environment panel while the app is running.
+`zbook run` uses the current directory as its workspace and listens only on Jupyter's `localhost` default. Binding a wildcard or non-loopback address prints a highlighted security warning: remote clients that obtain access can execute notebook code and reach the selected workspace and Codex. `0.0.0.0` listens on every network interface, though actual reachability still depends on the host firewall and network configuration. Keep Jupyter authentication enabled.
+
+The default kernel environment is a disposable uv venv under `/tmp`; a persistent uv environment can be selected from the environment panel while the app is running.
 
 Jupyter Server options go after a `--` passthrough boundary:
 
 ```bash
-zbook run --workspace-dir /absolute/path/to/workspace -- \
-  --ServerApp.port=8890 \
+zbook run --workspace-dir /absolute/path/to/workspace --port 8890 -- \
   --ServerApp.open_browser=False
 ```
 
