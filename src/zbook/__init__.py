@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
+
+try:
+    __version__ = distribution_version("zbook")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
 
 
 def _jupyter_server_extension_points() -> list[dict[str, object]]:

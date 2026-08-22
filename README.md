@@ -107,6 +107,29 @@ zbook run --workspace-dir /absolute/path/to/workspace -- \
 
 For compatibility, Jupyter flags supplied without `--` are still forwarded, but Zbook prints a highlighted warning showing the preferred form. The old direct form (`zbook --ZbookApp.workspace=…`) also remains available with a migration warning. During development, prefix these commands with `uv run`, such as `uv run zbook check`.
 
+## Releasing
+
+Releases are built and published by `.github/workflows/release.yml` through PyPI Trusted Publishing. The PyPI publisher must match the `honglu2875/zbook` repository, the `release.yml` workflow, and the `pypi` GitHub environment.
+
+For the first release, tag the current `0.1.0` commit after configuring the `pypi` environment and pending PyPI publisher:
+
+```bash
+git tag -a v0.1.0 -m "zbook 0.1.0"
+git push origin v0.1.0
+```
+
+For subsequent releases, update the sole package-version source in `pyproject.toml`, review the lockfile, commit, and push the matching tag:
+
+```bash
+uv version 0.1.1
+git add pyproject.toml uv.lock
+git commit -m "Release 0.1.1"
+git tag -a v0.1.1 -m "zbook 0.1.1"
+git push origin main v0.1.1
+```
+
+The workflow rejects a tag that does not match the package version, rebuilds and verifies the committed web client, tests both distribution formats in isolated environments, and grants the publishing credential only to the final PyPI job. Published PyPI versions cannot be replaced; use a new version for every changed release.
+
 ## Notebook key model
 
 - `Shift-Escape` leaves an editor and enters notebook navigation mode.

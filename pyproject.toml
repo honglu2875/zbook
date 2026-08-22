@@ -8,12 +8,29 @@ version = "0.1.0"
 description = "A small, keyboard-first notebook with uv and Codex integration"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "honglu2875" }]
+keywords = ["jupyter", "notebook", "ipython", "uv", "codex"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering",
+]
 dependencies = [
   "jupyter-server>=2.15,<3",
   "nbformat>=5.10,<6",
   "traitlets>=5.14,<6",
 ]
+
+[project.urls]
+Homepage = "https://github.com/honglu2875/zbook"
+Repository = "https://github.com/honglu2875/zbook"
+Issues = "https://github.com/honglu2875/zbook/issues"
 
 [project.scripts]
 zbook = "zbook.cli:main"
