@@ -1,7 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { NotebookCell } from "../model/notebook";
-import type { NotebookToolResponse } from "../model/notebookTools";
+import {
+  NOTEBOOK_APPLY_TOOL,
+  NOTEBOOK_LOCK_TOOL,
+  type NotebookToolResponse,
+} from "../model/notebookTools";
 import { websocketUrl } from "../services/http";
 import { ChevronIcon, CloseIcon, HistoryIcon, RefreshIcon, SparkIcon, StopIcon } from "./icons";
 
@@ -89,6 +93,7 @@ interface CodexPanelProps {
   selectedCell: NotebookCell | null;
   onBeforePrompt: () => Promise<boolean>;
   onWorkspaceChanged: () => void;
+  onTurnFinished: () => void;
   onNotebookToolCall: (tool: string, argumentsValue: unknown) => Promise<NotebookToolResponse>;
 }
 
@@ -268,6 +273,7 @@ export function CodexPanel({
   selectedCell,
   onBeforePrompt,
   onWorkspaceChanged,
+  onTurnFinished,
   onNotebookToolCall,
 }: CodexPanelProps) {
   const [prompt, setPrompt] = useState("");
@@ -305,8 +311,12 @@ export function CodexPanel({
   const activeThreadRef = useRef<string | null>(null);
   const boundThreadRef = useRef<string | null>(null);
   const pendingThreadTitle = useRef<string | null>(null);
-  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onNotebookToolCall });
-  callbacks.current = { onBeforePrompt, onWorkspaceChanged, onNotebookToolCall };
+  const threadToggle = useRef<HTMLButtonElement>(null);
+  const threadPopover = useRef<HTMLElement>(null);
+  const accountToggle = useRef<HTMLButtonElement>(null);
+  const accountPopover = useRef<HTMLElement>(null);
+  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onTurnFinished, onNotebookToolCall });
+  callbacks.current = { onBeforePrompt, onWorkspaceChanged, onTurnFinished, onNotebookToolCall };
   activeThreadRef.current = threadStore.activeId;
 
   useEffect(() => {
@@ -336,13 +346,28 @@ export function CodexPanel({
 
   useEffect(() => {
     if (!accountOpen && !threadOpen) return;
-    function closePopover(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      setAccountOpen(false);
-      setThreadOpen(false);
+    function closePopoverWithKeyboard(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAccountOpen(false);
+        setThreadOpen(false);
+      }
     }
-    window.addEventListener("keydown", closePopover);
-    return () => window.removeEventListener("keydown", closePopover);
+    function closePopoverFromOutside(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (threadOpen
+        && !threadToggle.current?.contains(target)
+        && !threadPopover.current?.contains(target)) setThreadOpen(false);
+      if (accountOpen
+        && !accountToggle.current?.contains(target)
+        && !accountPopover.current?.contains(target)) setAccountOpen(false);
+    }
+    window.addEventListener("keydown", closePopoverWithKeyboard);
+    window.addEventListener("pointerdown", closePopoverFromOutside);
+    return () => {
+      window.removeEventListener("keydown", closePopoverWithKeyboard);
+      window.removeEventListener("pointerdown", closePopoverFromOutside);
+    };
   }, [accountOpen, threadOpen]);
 
   useEffect(() => {
@@ -351,6 +376,7 @@ export function CodexPanel({
       return;
     }
     if (!available) {
+      callbacks.current.onTurnFinished();
       setConnection("error");
       setProblem("Codex CLI was not found on PATH.");
       return;
@@ -365,6 +391,7 @@ export function CodexPanel({
       socket,
     );
     socket.onerror = () => {
+      callbacks.current.onTurnFinished();
       setConnection("error");
       setProblem("The local Codex bridge could not connect.");
       setStage("Disconnected");
@@ -373,6 +400,7 @@ export function CodexPanel({
     };
     socket.onclose = () => {
       if (socketRef.current === socket) {
+        callbacks.current.onTurnFinished();
         socketRef.current = null;
         boundThreadRef.current = null;
         setConnection("error");
@@ -390,6 +418,7 @@ export function CodexPanel({
       }
     };
     return () => {
+      callbacks.current.onTurnFinished();
       if (socketRef.current === socket) socketRef.current = null;
       boundThreadRef.current = null;
       socket.close();
@@ -587,6 +616,7 @@ export function CodexPanel({
     setBusy(false);
     setStage(status === "interrupted" ? "Stopped" : status === "failed" ? "Failed" : "Ready");
     setApprovals([]);
+    callbacks.current.onTurnFinished();
     if (workspaceChanged.current) {
       workspaceChanged.current = false;
       callbacks.current.onWorkspaceChanged();
@@ -691,11 +721,16 @@ export function CodexPanel({
       return;
     }
     const activityId = `notebook-tool-${String(message.callId ?? requestId)}`;
-    const editing = tool === "zbook_notebook_apply";
-    setStage(editing ? "Editing notebook" : "Reading notebook");
+    const locking = tool === NOTEBOOK_LOCK_TOOL;
+    const editing = tool === NOTEBOOK_APPLY_TOOL;
+    setStage(locking ? "Protecting cells" : editing ? "Editing notebook" : "Reading notebook");
     appendActivity(
       activityId,
-      editing ? "Applying cell changes through Zbook…\n" : "Reading cells through Zbook…\n",
+      locking
+        ? "Updating turn-scoped cell locks…\n"
+        : editing
+          ? "Applying cell changes through Zbook…\n"
+          : "Reading cells through Zbook…\n",
     );
 
     let response: NotebookToolResponse;
@@ -798,6 +833,7 @@ export function CodexPanel({
       return;
     }
     if (message.type === "threadUnavailable") {
+      callbacks.current.onTurnFinished();
       const threadId = typeof message.threadId === "string" ? message.threadId : null;
       if (threadId) {
         updateThreadStore((current) => ({
@@ -851,6 +887,7 @@ export function CodexPanel({
       return;
     }
     if (message.type === "error") {
+      callbacks.current.onTurnFinished();
       const detail = String(message.message ?? "Unknown Codex bridge error");
       setProblem(detail);
       setStage("Failed");
@@ -925,6 +962,7 @@ export function CodexPanel({
   }
 
   function newThread() {
+    callbacks.current.onTurnFinished();
     socketRef.current?.send(JSON.stringify({ type: "newThread" }));
     activeAssistant.current = null;
     agentMessages.current.clear();
@@ -946,6 +984,7 @@ export function CodexPanel({
       setThreadOpen(false);
       return;
     }
+    callbacks.current.onTurnFinished();
     updateThreadStore((current) => ({ ...current, activeId: threadId }));
     boundThreadRef.current = null;
     activeAssistant.current = null;
@@ -981,6 +1020,7 @@ export function CodexPanel({
   function logout() {
     if (!window.confirm("Sign out of the Codex CLI on this machine?")) return;
     setAccountRefreshing(true);
+    callbacks.current.onTurnFinished();
     setAccountOpen(false);
     boundThreadRef.current = null;
     socketRef.current?.send(JSON.stringify({ type: "logout" }));
@@ -1018,6 +1058,7 @@ export function CodexPanel({
         </span>
         <div className="codex-heading-actions">
           <button
+            ref={threadToggle}
             className={`thread-summary ${threadOpen ? "is-open" : ""}`}
             onClick={() => {
               setThreadOpen((value) => !value);
@@ -1030,6 +1071,7 @@ export function CodexPanel({
             title={currentThread?.title ?? "Codex thread history"}
           ><HistoryIcon /><span>{threadStore.threads.length || ""}</span></button>
           <button
+            ref={accountToggle}
             className={`codex-session-summary ${accountOpen ? "is-open" : ""}`}
             onClick={() => {
               setAccountOpen((value) => !value);
@@ -1048,7 +1090,7 @@ export function CodexPanel({
         </div>
       </div>
       {threadOpen && (
-        <section className="codex-thread-popover" role="dialog" aria-label="Zbook Codex threads">
+        <section ref={threadPopover} className="codex-thread-popover" role="dialog" aria-label="Zbook Codex threads">
           <header>
             <div><strong>Threads</strong><span>This workspace</span></div>
             <button type="button" onClick={newThread} disabled={busy}><span>+</span> New</button>
@@ -1074,7 +1116,7 @@ export function CodexPanel({
         </section>
       )}
       {accountOpen && (
-        <section className="codex-account-popover" role="dialog" aria-label="Codex settings and account">
+        <section ref={accountPopover} className="codex-account-popover" role="dialog" aria-label="Codex settings and account">
           <header>
             <div><i>{account?.account?.type === "chatgpt" ? "C" : "A"}</i><span><strong>{accountName}</strong><em>{accountLabel ? `${accountLabel} plan · local CLI` : "Local Codex CLI"}</em></span></div>
             <button onClick={() => setAccountOpen(false)} aria-label="Close account details"><CloseIcon /></button>

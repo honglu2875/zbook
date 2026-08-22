@@ -6,6 +6,7 @@ import {
   CodeIcon,
   DownloadIcon,
   HeightIcon,
+  LockIcon,
   OutputIcon,
   PlayIcon,
   RefreshIcon,
@@ -30,6 +31,7 @@ interface NotebookProps {
   saveState: SaveState;
   canRun: boolean;
   locked: boolean;
+  lockedCellIds: string[];
   codexChangedCellIds: string[];
   codexUndoAvailable: boolean;
   cellViews: Record<string, CellViewState>;
@@ -83,6 +85,7 @@ export function Notebook({
   saveState,
   canRun,
   locked,
+  lockedCellIds,
   codexChangedCellIds,
   codexUndoAvailable,
   cellViews,
@@ -119,7 +122,7 @@ export function Notebook({
           <div className="notebook-document-actions">
             <span className={`save-state save-${saveState}`}>{saveLabel}</span>
             <button onClick={onSave} disabled={saveState === "saving" || locked} title="Save notebook (Ctrl/Cmd-S)"><SaveIcon />Save</button>
-            <button onClick={onReload} disabled={saveState === "saving" || locked} title="Reload notebook from disk"><RefreshIcon />Reload</button>
+            <button onClick={onReload} disabled={saveState === "saving" || locked || lockedCellIds.length > 0} title="Reload notebook from disk"><RefreshIcon />Reload</button>
             <button onClick={onExport} title="Export .ipynb"><DownloadIcon />Export</button>
           </div>
         </div>
@@ -136,6 +139,8 @@ export function Notebook({
           const selected = selectedId === cell.id;
           const editing = editingId === cell.id;
           const changedByCodex = codexChangedCellIds.includes(cell.id);
+          const codexLocked = lockedCellIds.includes(cell.id);
+          const cellLocked = locked || codexLocked;
           const view = cellViews[cell.id] ?? {};
           const sourceLineCount = cell.source
             ? cell.source.replace(/\n$/, "").split("\n").length
@@ -145,12 +150,12 @@ export function Notebook({
             <div className="notebook-cell-group" key={cell.id}>
             <article
               data-cell-id={cell.id}
-              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${locked ? "is-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.scrollLimited ? "is-scroll-limited" : ""} ${view.sourceCollapsed ? "has-collapsed-source" : ""} ${view.outputCollapsed ? "has-collapsed-output" : ""}`}
+              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.scrollLimited ? "is-scroll-limited" : ""} ${view.sourceCollapsed ? "has-collapsed-source" : ""} ${view.outputCollapsed ? "has-collapsed-output" : ""}`}
               tabIndex={0}
               onFocus={() => onSelect(cell.id)}
               onClick={() => onSelect(cell.id)}
-              onDoubleClick={() => onEdit(cell.id)}
-              aria-label={`${cell.kind} cell`}
+              onDoubleClick={() => { if (!cellLocked) onEdit(cell.id); }}
+              aria-label={`${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}`}
             >
               <div
                 className="cell-rail"
@@ -174,7 +179,7 @@ export function Notebook({
                   <>
                     <button
                       className="run-button"
-                      disabled={locked || !canRun || cell.state === "running"}
+                      disabled={cellLocked || !canRun || cell.state === "running"}
                       onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
                       aria-label="Run cell"
                       title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
@@ -186,6 +191,7 @@ export function Notebook({
                     </span>
                   </>
                 ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>}
+                {codexLocked && <span className="cell-codex-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
                 {view.scrollLimited && <span className="cell-scroll-state" aria-hidden="true">↕</span>}
               </div>
               <div className="cell-body">
@@ -218,7 +224,7 @@ export function Notebook({
                   )}
                   <select
                     value={cell.kind}
-                    disabled={locked}
+                    disabled={cellLocked}
                     onChange={(event) => onChangeKind(cell.id, event.target.value as CellKind)}
                     onClick={(event) => event.stopPropagation()}
                     aria-label="Cell type"
@@ -227,7 +233,7 @@ export function Notebook({
                     <option value="markdown">Markdown</option>
                     <option value="raw">Raw</option>
                   </select>
-                  <button className="cell-delete" disabled={locked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
+                  <button className="cell-delete" disabled={cellLocked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
                 </div>
                 {view.sourceCollapsed ? (
                   <button
@@ -243,7 +249,13 @@ export function Notebook({
                 ) : (
                   <div className="cell-source">
                     {cell.kind === "markdown" && !editing ? (
-                      <div className="markdown-rendered" onClick={() => onEdit(cell.id)}>
+                      <div
+                        className="markdown-rendered"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!cellLocked) onEdit(cell.id);
+                        }}
+                      >
                         <ReactMarkdown>{cell.source}</ReactMarkdown>
                       </div>
                     ) : (
@@ -251,7 +263,7 @@ export function Notebook({
                         kind={cell.kind}
                         source={cell.source}
                         vimEnabled={vimEnabled}
-                        readOnly={locked}
+                        readOnly={cellLocked}
                         onChange={(source) => onChange(cell.id, source)}
                         onRun={(advance, insert) => onRun(cell.id, advance, insert)}
                         onModeChange={(nextMode) => {
@@ -283,8 +295,8 @@ export function Notebook({
               </div>
             </article>
             <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>
-              <button disabled={locked} onClick={() => onAddAfter(cell.id, "code")}><span>+</span> Code</button>
-              <button disabled={locked} onClick={() => onAddAfter(cell.id, "markdown")}><span>+</span> Markdown</button>
+              <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "code")}><span>+</span> Code</button>
+              <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "markdown")}><span>+</span> Markdown</button>
             </div>
             </div>
           );

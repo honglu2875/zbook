@@ -377,12 +377,15 @@ body.is-resizing-pane .app-shell { transition: none; }
   cursor: wait;
   content: "";
 }
+.notebook-cell.is-codex-locked { box-shadow: inset 0 0 0 1px #8a70452e; }
+.notebook-cell.is-codex-locked .cell-editor::after { cursor: not-allowed; }
 .notebook-cell.is-editing { border-color: #464238; background: #1c1f21; }
 .notebook-cell.is-codex-changed { box-shadow: inset 0 0 0 1px #8c724743; }
 .cell-rail { position: absolute; z-index: 2; top: -1px; bottom: -1px; left: -1px; width: 3px; background: transparent; cursor: ns-resize; }
 .notebook-cell.is-selected .cell-rail { background: #78684f; }
 .notebook-cell.is-editing .cell-rail { background: var(--accent); }
 .notebook-cell.is-scroll-limited .cell-rail { background: #9a7b49; box-shadow: 2px 0 0 #9a7b4918; }
+.notebook-cell.is-codex-locked .cell-rail { background: #b18c50; box-shadow: 2px 0 0 #b18c501a; }
 
 .cell-gutter { position: relative; display: flex; align-items: flex-start; justify-content: flex-start; min-height: 48px; padding: 13px 3px 0 5px; color: #61686e; font-family: var(--font-mono); font-size: 9.5px; cursor: ns-resize; }
 .run-button { display: grid; place-items: center; width: 19px; height: 19px; padding: 0; border: 0; background: transparent; color: #6e757b; opacity: 0; cursor: pointer; }
@@ -392,7 +395,10 @@ body.is-resizing-pane .app-shell { transition: none; }
 .execution-count { flex: 0 0 28px; margin: 4px 0 0 1px; color: #6a7076; line-height: 1; text-align: right; white-space: nowrap; }
 .markdown-mark { display: block; width: 24px; margin-top: 3px; color: #626970; text-align: center; font: 9px var(--font-mono); opacity: 0; }
 .notebook-cell:hover .markdown-mark, .notebook-cell.is-selected .markdown-mark { opacity: 1; }
+.cell-codex-lock { position: absolute; bottom: 6px; left: 10px; display: grid; place-items: center; width: 12px; height: 12px; color: #b18c50; }
+.cell-codex-lock svg { width: 10px; height: 10px; stroke-width: 1.35; }
 .cell-scroll-state { position: absolute; bottom: 7px; left: 21px; color: #a18455; font: 10px/1 var(--font-mono); }
+.cell-codex-lock + .cell-scroll-state { left: 34px; }
 
 .cell-body { min-width: 0; overflow: hidden; }
 .notebook-cell.is-scroll-limited .cell-body { max-height: 320px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #4a4d4e #202326; scrollbar-width: thin; }

@@ -43,6 +43,28 @@ export function CellEditor({
         return false;
       },
       keydown: (event) => {
+        if (event.shiftKey && event.key === "Escape") {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement).blur();
+          callbacks.current.onModeChange("NAV");
+          return true;
+        }
+        if (readOnly) {
+          const navigationKey = [
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "ArrowUp",
+            "End",
+            "Home",
+            "PageDown",
+            "PageUp",
+          ].includes(event.key);
+          const copyCommand = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c";
+          if (navigationKey || copyCommand) return false;
+          event.preventDefault();
+          return true;
+        }
         if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
           event.preventDefault();
           callbacks.current.onRun(false, false);
@@ -58,12 +80,6 @@ export function CellEditor({
           callbacks.current.onRun(true, true);
           return true;
         }
-        if (event.shiftKey && event.key === "Escape") {
-          event.preventDefault();
-          (event.currentTarget as HTMLElement).blur();
-          callbacks.current.onModeChange("NAV");
-          return true;
-        }
         if (vimEnabled && event.key === "Escape") callbacks.current.onModeChange("NORMAL");
         if (vimEnabled && !event.metaKey && !event.ctrlKey && /^[iIaAoOsScC]$/.test(event.key)) {
           callbacks.current.onModeChange("INSERT");
@@ -76,7 +92,7 @@ export function CellEditor({
       doc: source,
       extensions: [
         notebookKeys,
-        ...(vimEnabled ? [vim()] : []),
+        ...(vimEnabled && !readOnly ? [vim()] : []),
         basicSetup,
         keymap.of([indentWithTab]),
         EditorState.readOnly.of(readOnly),

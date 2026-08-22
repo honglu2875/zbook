@@ -25,12 +25,18 @@ class CodexRequestError(RuntimeError):
 DEFAULT_REQUEST_TIMEOUT = 30.0
 
 NOTEBOOK_TOOL_INSTRUCTIONS = """You are embedded in Zbook. When reading or changing the open
-notebook, use zbook_notebook_read and zbook_notebook_apply instead of editing the .ipynb file with
-shell commands or apply_patch. Read immediately before editing and pass its notebookPath and
-documentRevision as expectedRevision. If an edit reports a conflict, read again before retrying.
-For a reorder-only task, read with includeSource false, then use move_after or swap operations in
-zbook_notebook_apply without resending cell source.
-Shell tools remain appropriate for non-notebook workspace files."""
+notebook, use Zbook's notebook tools instead of editing the .ipynb file with shell commands or
+apply_patch. Read immediately before editing and pass its notebookPath and documentRevision as
+expectedRevision. If the user's request requires modifying existing cells, identify the relevant
+cells on the first read and immediately lock the likely set with zbook_notebook_lock before further
+investigation, reasoning, or tool actions; expand the locked set later if needed. Keep those locks
+while you read, reason, edit, check, and revise across the turn; unlock cells early only when they
+are no longer relevant. Locks do not change documentRevision.
+All remaining locks release automatically when the turn ends. If an operation reports a conflict,
+read again before retrying.
+For a reorder-only task, read with includeSource false, lock the cells whose positions matter,
+then use move_after or swap operations in zbook_notebook_apply without resending source. Shell
+tools remain appropriate for non-notebook workspace files."""
 
 NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
     {
@@ -56,12 +62,47 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "zbook_notebook_lock",
+        "description": (
+            "Lock or unlock existing cells in the Zbook UI for the current Codex turn. Before "
+            "working on a modification, lock likely relevant cells immediately after the first "
+            "read so the user cannot edit or execute them while you continue investigating, "
+            "reasoning, and making multiple tool calls. Locks do not change the notebook revision "
+            "and automatically release when the turn ends."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "notebookPath",
+                "expectedRevision",
+                "action",
+                "cellIds",
+            ],
+            "properties": {
+                "notebookPath": {"type": "string"},
+                "expectedRevision": {"type": "integer", "minimum": 0},
+                "action": {"enum": ["lock", "unlock"]},
+                "cellIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "uniqueItems": True,
+                    "items": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
         "name": "zbook_notebook_apply",
         "description": (
             "Atomically edit cells in the open Zbook notebook and save the result. Always call "
-            "zbook_notebook_read first, then pass its exact notebookPath and documentRevision. "
-            "Use this instead of shell commands or apply_patch for .ipynb edits. Operations run "
-            "in order and the whole batch is rejected on invalid input or a concurrent UI change."
+            "zbook_notebook_read first, lock every existing cell that the operations will change "
+            "with zbook_notebook_lock, then pass the exact notebookPath and documentRevision. Use "
+            "this instead of shell commands or apply_patch for .ipynb edits. Operations run in "
+            "order and the whole batch is rejected on missing locks, invalid input, or a "
+            "concurrent UI change. Insert-only operations do not require a pre-existing lock."
         ),
         "inputSchema": {
             "type": "object",

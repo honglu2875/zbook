@@ -76,3 +76,6 @@ export const CodeIcon = (props: IconProps) => (
 export const OutputIcon = (props: IconProps) => (
   <Icon {...props}><rect x="2" y="2.5" width="12" height="11" rx="1" /><path d="M4.5 6h7M4.5 9h4.5" /></Icon>
 );
+export const LockIcon = (props: IconProps) => (
+  <Icon {...props}><rect x="3" y="7" width="10" height="7" rx="1" /><path d="M5 7V5a3 3 0 0 1 6 0v2M8 10v1.5" /></Icon>
+);

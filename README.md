@@ -24,7 +24,7 @@ The main notebook loop is functional:
 - workspace `.venv` folders are detected and can be selected live; a project folder or uv-venv path can also be entered manually;
 - the Codex panel uses the locally signed-in Codex CLI and ChatGPT subscription—no application API key—and streams turns through Codex App Server;
 - Codex receives optional notebook/cell context and exposes live command/file activity plus any required approvals;
-- Codex gets dedicated read/apply cell tools: notebook edits go directly through React, are revision-checked, briefly lock the editor, apply atomically, and save without a shell/edit/refresh round trip; source-light reads plus `move_after` and `swap` operations make cell reordering inexpensive;
+- Codex gets dedicated read/lock/apply cell tools: relevant cells become visibly read-only across the full reasoning-and-editing turn, remaining locks release automatically at turn end, and edits are revision-checked, atomic, undoable, and saved without a shell/edit/refresh round trip; source-light reads plus `move_after` and `swap` operations make reordering inexpensive;
 - each Codex cell edit gets an in-notebook review marker and a safe one-step undo until the notebook changes again;
 - the Codex pane reads the installed CLI's model catalog and subscription rate limits, defaults to GPT-5.6-Luna with medium reasoning when available, and provides model/effort pickers, quota refresh, sign-in, and sign-out.
 - Zbook-created Codex threads persist through App Server, are remembered per workspace, and can be resumed from the compact thread switcher without showing unrelated CLI sessions.

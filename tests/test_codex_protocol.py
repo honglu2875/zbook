@@ -103,14 +103,23 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(params["developerInstructions"], NOTEBOOK_TOOL_INSTRUCTIONS)
             self.assertEqual(
                 {tool["name"] for tool in params["dynamicTools"]},
-                {"zbook_notebook_read", "zbook_notebook_apply"},
+                {
+                    "zbook_notebook_read",
+                    "zbook_notebook_lock",
+                    "zbook_notebook_apply",
+                },
             )
 
-    def test_notebook_tools_expose_source_light_reordering(self) -> None:
+    def test_notebook_tools_expose_turn_locks_and_source_light_reordering(self) -> None:
         tools = {tool["name"]: tool for tool in NOTEBOOK_DYNAMIC_TOOLS}
         read_schema = tools["zbook_notebook_read"]["inputSchema"]
         self.assertEqual(read_schema["properties"]["includeSource"]["type"], "boolean")
         self.assertTrue(read_schema["properties"]["includeSource"]["default"])
+
+        lock_schema = tools["zbook_notebook_lock"]["inputSchema"]
+        self.assertEqual(lock_schema["properties"]["action"]["enum"], ["lock", "unlock"])
+        self.assertTrue(lock_schema["properties"]["cellIds"]["uniqueItems"])
+        self.assertEqual(lock_schema["properties"]["cellIds"]["maxItems"], 100)
 
         operation_schemas = tools["zbook_notebook_apply"]["inputSchema"]["properties"][
             "operations"
@@ -121,6 +130,11 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             {"replace_source", "set_kind", "insert_after", "delete", "move_after", "swap"},
         )
         self.assertIn("includeSource false", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn(
+            "immediately lock the likely set with zbook_notebook_lock",
+            NOTEBOOK_TOOL_INSTRUCTIONS,
+        )
+        self.assertIn("release automatically", NOTEBOOK_TOOL_INSTRUCTIONS)
 
     async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

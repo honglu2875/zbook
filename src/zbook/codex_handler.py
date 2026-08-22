@@ -20,7 +20,11 @@ _APPROVAL_METHODS = {
 }
 _APPROVAL_DECISIONS = {"accept", "acceptForSession", "decline", "cancel"}
 _NOTEBOOK_TOOL_METHOD = "item/tool/call"
-_NOTEBOOK_TOOLS = {"zbook_notebook_read", "zbook_notebook_apply"}
+_NOTEBOOK_TOOLS = {
+    "zbook_notebook_read",
+    "zbook_notebook_lock",
+    "zbook_notebook_apply",
+}
 _NOTEBOOK_TOOL_TIMEOUT = 45.0
 _PREFERRED_MODEL = "gpt-5.6-luna"
 _PREFERRED_EFFORT = "medium"

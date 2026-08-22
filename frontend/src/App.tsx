@@ -28,6 +28,7 @@ import {
 import {
   applyNotebookOperations,
   NOTEBOOK_APPLY_TOOL,
+  NOTEBOOK_LOCK_TOOL,
   NOTEBOOK_READ_TOOL,
   NotebookToolInputError,
   parseNotebookToolArguments,
@@ -241,6 +242,7 @@ export default function App() {
   const [kernelState, setKernelState] = useState<KernelState>("disconnected");
   const [busy, setBusy] = useState(false);
   const [notebookToolLocked, setNotebookToolLocked] = useState(false);
+  const [codexCellLocks, setCodexCellLocks] = useState<Record<string, string[]>>({});
   const [codexEditReview, setCodexEditReview] = useState<CodexEditReview | null>(null);
   const [workspaceSessionReady, setWorkspaceSessionReady] = useState(false);
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
@@ -252,6 +254,7 @@ export default function App() {
   const savedRevision = useRef(0);
   const savePromise = useRef<Promise<boolean> | null>(null);
   const notebookToolLockedRef = useRef(false);
+  const codexCellLocksRef = useRef<Record<string, string[]>>({});
   const directoriesRef = useRef(directories);
   const openTabsRef = useRef(openTabs);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
@@ -362,8 +365,12 @@ export default function App() {
       } else if (event.key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
         setSelectedId(cells[Math.max(index - 1, 0)].id);
+      } else if (event.shiftKey && event.key === "Enter") {
+        event.preventDefault();
+        void runCell(selectedId, true, false);
       } else if (event.key === "Enter" || event.key === "i") {
         event.preventDefault();
+        if (cellMutationBlocked(selectedId)) return;
         setEditingId(selectedId);
         setMode(vimEnabled ? "NORMAL" : "INSERT");
       } else if (event.key.toLowerCase() === "o" || event.key.toLowerCase() === "b") {
@@ -515,6 +522,42 @@ export default function App() {
     setCells(updater);
   }
 
+  function replaceCodexCellLocks(next: Record<string, string[]>) {
+    codexCellLocksRef.current = next;
+    setCodexCellLocks(next);
+  }
+
+  function releaseCodexCellLocks() {
+    if (Object.keys(codexCellLocksRef.current).length === 0) return;
+    replaceCodexCellLocks({});
+  }
+
+  function codexLockedCellIds(path = documentRef.current.notebookPath): string[] {
+    return path ? codexCellLocksRef.current[path] ?? [] : [];
+  }
+
+  function isCodexCellLocked(id: string, path = documentRef.current.notebookPath): boolean {
+    return codexLockedCellIds(path).includes(id);
+  }
+
+  function cellMutationBlocked(id: string): boolean {
+    if (!isCodexCellLocked(id)) return false;
+    setNotice("That cell is locked while Codex works on this turn.");
+    return true;
+  }
+
+  function retainCodexCellLocks(path: string, validCells: NotebookCell[]) {
+    const current = codexCellLocksRef.current[path];
+    if (!current?.length) return;
+    const validIds = new Set(validCells.map((cell) => cell.id));
+    const retained = current.filter((id) => validIds.has(id));
+    if (retained.length === current.length) return;
+    const next = { ...codexCellLocksRef.current };
+    if (retained.length) next[path] = retained;
+    else delete next[path];
+    replaceCodexCellLocks(next);
+  }
+
   async function persistNotebook(): Promise<boolean> {
     if (notebookToolLockedRef.current) return false;
     if (savePromise.current) return savePromise.current;
@@ -569,6 +612,10 @@ export default function App() {
     }
     const path = documentRef.current.notebookPath;
     if (!path) return;
+    if (codexLockedCellIds(path).length) {
+      setNotice("Codex has cells locked in this notebook until the turn finishes.");
+      return;
+    }
     if (!fromExternalChange && documentRef.current.saveState !== "saved") {
       if (!window.confirm("Discard unsaved changes and reload this notebook?")) return;
     }
@@ -631,6 +678,7 @@ export default function App() {
           selectedCellId: selectedId || null,
           saveState: current.saveState,
           sourceIncluded: includeSource,
+          lockedCellIds: codexLockedCellIds(current.notebookPath),
           cells: current.cells.map((cell, index) => ({
             index,
             id: cell.id,
@@ -641,7 +689,7 @@ export default function App() {
         },
       };
     }
-    if (tool !== NOTEBOOK_APPLY_TOOL) {
+    if (tool !== NOTEBOOK_APPLY_TOOL && tool !== NOTEBOOK_LOCK_TOOL) {
       return { success: false, result: { error: `Unknown notebook tool: ${tool}` } };
     }
     if (!current.notebookPath) {
@@ -651,7 +699,7 @@ export default function App() {
       return { success: false, result: { error: "Another notebook tool call is still running." } };
     }
     if (kernelClient.current?.currentState === "busy" || kernelClient.current?.currentState === "starting") {
-      return { success: false, result: { error: "Wait for the running cell to finish before editing it." } };
+      return { success: false, result: { error: "Wait for the running cell to finish before locking or editing it." } };
     }
     if (typeof args.notebookPath !== "string" || args.notebookPath !== current.notebookPath) {
       return {
@@ -674,12 +722,99 @@ export default function App() {
       };
     }
 
+    if (tool === NOTEBOOK_LOCK_TOOL) {
+      const action = args.action;
+      if (action !== "lock" && action !== "unlock") {
+        return {
+          success: false,
+          result: { error: "invalid_lock_request", message: "action must be lock or unlock." },
+        };
+      }
+      if (!Array.isArray(args.cellIds) || args.cellIds.length === 0 || args.cellIds.length > 100) {
+        return {
+          success: false,
+          result: { error: "invalid_lock_request", message: "cellIds must contain 1 to 100 cell IDs." },
+        };
+      }
+      const currentLocks = new Set(codexLockedCellIds(current.notebookPath));
+      const currentIds = new Set(current.cells.map((cell) => cell.id));
+      const requestedIds: string[] = [];
+      const seen = new Set<string>();
+      for (const value of args.cellIds) {
+        if (typeof value !== "string" || value.length === 0 || value.length > 200) {
+          return {
+            success: false,
+            result: { error: "invalid_lock_request", message: "Every cellIds entry must be a valid cell ID." },
+          };
+        }
+        if (seen.has(value)) {
+          return {
+            success: false,
+            result: { error: "invalid_lock_request", message: `cellIds contains a duplicate: ${value}` },
+          };
+        }
+        if (!currentIds.has(value) && !(action === "unlock" && currentLocks.has(value))) {
+          return {
+            success: false,
+            result: { error: "invalid_lock_request", message: `cellIds does not identify a current cell: ${value}` },
+          };
+        }
+        seen.add(value);
+        requestedIds.push(value);
+      }
+      requestedIds.forEach((id) => {
+        if (action === "lock") currentLocks.add(id);
+        else currentLocks.delete(id);
+      });
+      const orderedLocks = current.cells
+        .map((cell) => cell.id)
+        .filter((id) => currentLocks.has(id));
+      const nextLocks = { ...codexCellLocksRef.current };
+      if (orderedLocks.length) nextLocks[current.notebookPath] = orderedLocks;
+      else delete nextLocks[current.notebookPath];
+      replaceCodexCellLocks(nextLocks);
+      if (action === "lock" && requestedIds.includes(editingId ?? "")) {
+        setEditingId(null);
+        setMode("NAV");
+      }
+      setNotice(action === "lock"
+        ? `Codex locked ${requestedIds.length} cell${requestedIds.length === 1 ? "" : "s"} for this turn.`
+        : `Codex unlocked ${requestedIds.length} cell${requestedIds.length === 1 ? "" : "s"}.`);
+      return {
+        success: true,
+        result: {
+          notebookPath: current.notebookPath,
+          documentRevision: revision.current,
+          action,
+          affectedCellIds: requestedIds,
+          lockedCellIds: orderedLocks,
+          automaticRelease: "turn_end",
+        },
+      };
+    }
+
     let applied;
     try {
       applied = applyNotebookOperations(current.cells, args.operations);
     } catch (error) {
       const message = error instanceof NotebookToolInputError ? error.message : String(error);
       return { success: false, result: { error: "invalid_operations", message } };
+    }
+    const currentCellIds = new Set(current.cells.map((cell) => cell.id));
+    const heldLocks = new Set(codexLockedCellIds(current.notebookPath));
+    const missingLocks = applied.affectedCellIds.filter((id) => (
+      currentCellIds.has(id) && !heldLocks.has(id)
+    ));
+    if (missingLocks.length) {
+      return {
+        success: false,
+        result: {
+          error: "cells_not_locked",
+          message: "Lock every existing cell affected by the operation before applying changes.",
+          missingCellIds: missingLocks,
+          lockedCellIds: [...heldLocks],
+        },
+      };
     }
 
     notebookToolLockedRef.current = true;
@@ -704,6 +839,7 @@ export default function App() {
         notebookPath: current.notebookPath,
         saveState: "saved",
       };
+      retainCodexCellLocks(current.notebookPath, applied.cells);
       setCells(applied.cells);
       setSaveState("saved");
       const nextSelected = applied.insertedCellIds.at(-1)
@@ -726,6 +862,7 @@ export default function App() {
           documentRevision: nextRevision,
           affectedCellIds: applied.affectedCellIds,
           insertedCellIds: applied.insertedCellIds,
+          lockedCellIds: codexLockedCellIds(current.notebookPath),
           cellCount: applied.cells.length,
           saved: true,
           undoAvailable: true,
@@ -944,6 +1081,12 @@ export default function App() {
           views,
         ]),
       ));
+      replaceCodexCellLocks(Object.fromEntries(
+        Object.entries(codexCellLocksRef.current).map(([path, cellIds]) => [
+          isSameOrChild(path, entryPath) ? `${newPath}${path.slice(entryPath.length)}` : path,
+          cellIds,
+        ]),
+      ));
       if (treeDirectory === entryPath || treeDirectory.startsWith(`${entryPath}/`)) {
         setTreeDirectory(`${newPath}${treeDirectory.slice(entryPath.length)}`);
       }
@@ -987,6 +1130,12 @@ export default function App() {
   }
 
   async function deleteContent(entry: ContentEntry) {
+    if (Object.entries(codexCellLocksRef.current).some(([path, cellIds]) => (
+      cellIds.length > 0 && isSameOrChild(path, entry.path)
+    ))) {
+      setNotice("Codex has cells locked there until the turn finishes.");
+      return;
+    }
     if (!window.confirm(`Delete ${entry.path}?`)) return;
     const activePath = documentRef.current.notebookPath;
     const containsActive = Boolean(activePath && isSameOrChild(activePath, entry.path));
@@ -1007,6 +1156,10 @@ export default function App() {
       setCellViewsByNotebook((current) => Object.fromEntries(
         Object.entries(current).filter(([path]) => !isSameOrChild(path, entry.path)),
       ));
+      replaceCodexCellLocks(Object.fromEntries(
+        Object.entries(codexCellLocksRef.current)
+          .filter(([path]) => !isSameOrChild(path, entry.path)),
+      ));
       setOpenTabs(remainingTabs);
       if (containsActive) {
         resetNotebookDocument();
@@ -1023,6 +1176,7 @@ export default function App() {
   }
 
   function updateCell(id: string, source: string) {
+    if (cellMutationBlocked(id)) return;
     updateCells((current) => current.map((cell) => cell.id === id ? { ...cell, source } : cell));
   }
 
@@ -1059,7 +1213,7 @@ export default function App() {
   }
 
   function changeCellKind(id: string, kind: CellKind) {
-    if (notebookToolLockedRef.current) return;
+    if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
     updateCells((current) => current.map((cell) => cell.id === id ? {
       ...cell,
       kind,
@@ -1070,7 +1224,7 @@ export default function App() {
   }
 
   function deleteCell(id: string) {
-    if (notebookToolLockedRef.current) return;
+    if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
     const remaining = cells.filter((cell) => cell.id !== id);
     const replacement = remaining.length ? null : newCell("code");
     updateCells((current) => {
@@ -1094,7 +1248,7 @@ export default function App() {
   }
 
   function insertAfter(id: string, kind: CellKind) {
-    if (notebookToolLockedRef.current) return;
+    if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
     const cell = newCell(kind);
     updateCells((current) => {
       const index = current.findIndex((item) => item.id === id);
@@ -1107,7 +1261,7 @@ export default function App() {
   }
 
   function insertBefore(id: string, kind: CellKind) {
-    if (notebookToolLockedRef.current) return;
+    if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
     const cell = newCell(kind);
     updateCells((current) => {
       const index = current.findIndex((item) => item.id === id);
@@ -1136,6 +1290,10 @@ export default function App() {
   async function undoCodexEdit() {
     const review = codexEditReview;
     if (!review || review.notebookPath !== documentRef.current.notebookPath) return;
+    if (codexLockedCellIds(review.notebookPath).length) {
+      setNotice("Wait for Codex to finish or unlock the cells before undoing its prior change.");
+      return;
+    }
     if (review.afterRevision !== revision.current) {
       setNotice("The notebook changed after the Codex edit, so its one-step undo is no longer safe.");
       return;
@@ -1183,17 +1341,23 @@ export default function App() {
     } : cell));
   }
 
-  function advanceAfterRun(id: string, insert: boolean) {
+  function advanceAfterRun(id: string, insert: boolean, editNext = true) {
     const current = documentRef.current.cells;
     const index = current.findIndex((cell) => cell.id === id);
     if (index < 0) return;
     if (insert || index === current.length - 1) {
       insertAfter(id, "code");
+      if (!editNext) {
+        setEditingId(null);
+        setMode("NAV");
+      }
       return;
     }
     const next = current[index + 1];
+    const shouldEdit = editNext && next.kind !== "markdown" && !isCodexCellLocked(next.id);
     setSelectedId(next.id);
-    setEditingId(next.kind === "markdown" ? null : next.id);
+    setEditingId(shouldEdit ? next.id : null);
+    if (!shouldEdit) setMode("NAV");
   }
 
   async function runCell(id: string, advance: boolean, insert: boolean): Promise<boolean> {
@@ -1201,12 +1365,14 @@ export default function App() {
       setNotice("Wait for the Codex cell change to finish before running a cell.");
       return false;
     }
+    if (cellMutationBlocked(id)) return false;
     const client = kernelClient.current;
     const cell = documentRef.current.cells.find((item) => item.id === id);
     if (!cell) return false;
     if (cell.kind !== "code") {
       setEditingId(null);
-      if (advance) advanceAfterRun(id, insert);
+      setMode("NAV");
+      if (advance) advanceAfterRun(id, insert, insert);
       return true;
     }
     if (!notebookPath || !client) return false;
@@ -1349,6 +1515,7 @@ export default function App() {
 
   const workspaceName = status ? basename(status.config.workspace) : "workspace";
   const environmentName = status ? basename(status.config.venv) : ".venv";
+  const activeLockedCellIds = notebookPath ? codexCellLocks[notebookPath] ?? [] : [];
   const appShellStyle = {
     "--left-pane-width": `${leftPaneWidth}px`,
     "--right-pane-width": `${rightPaneWidth}px`,
@@ -1576,17 +1743,19 @@ export default function App() {
             saveState={saveState}
             canRun={Boolean(status?.kernel.ready) && !notebookToolLocked && kernelState !== "busy" && kernelState !== "starting"}
             locked={notebookToolLocked}
+            lockedCellIds={activeLockedCellIds}
             codexChangedCellIds={codexEditReview?.notebookPath === notebookPath ? codexEditReview.affectedCellIds : []}
             codexUndoAvailable={Boolean(
               codexEditReview
               && codexEditReview.notebookPath === notebookPath
               && codexEditReview.afterRevision === revision.current
               && !notebookToolLocked
+              && activeLockedCellIds.length === 0
             )}
             cellViews={cellViewsByNotebook[notebookPath] ?? {}}
             onSelect={selectCell}
             onEdit={(id) => {
-              if (notebookToolLockedRef.current) return;
+              if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
               setSelectedId(id);
               setEditingId(id);
               setMode(vimEnabled ? "NORMAL" : "INSERT");
@@ -1635,6 +1804,7 @@ export default function App() {
           selectedCell={cells.find((cell) => cell.id === selectedId) ?? null}
           onBeforePrompt={ensureDocumentSaved}
           onWorkspaceChanged={() => void refreshAfterCodexChange()}
+          onTurnFinished={releaseCodexCellLocks}
           onNotebookToolCall={handleNotebookToolCall}
         />
       )}
