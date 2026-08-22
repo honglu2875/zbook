@@ -1,13 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { CellKind, NotebookCell } from "../model/notebook";
 import { CellEditor } from "./CellEditor";
 import {
   ChevronIcon,
-  CodeIcon,
   DownloadIcon,
   HeightIcon,
   LockIcon,
-  OutputIcon,
   PlayIcon,
   RefreshIcon,
   SaveIcon,
@@ -16,9 +15,8 @@ import {
 
 export type SaveState = "saved" | "dirty" | "saving" | "error";
 export interface CellViewState {
-  scrollLimited?: boolean;
-  sourceCollapsed?: boolean;
-  outputCollapsed?: boolean;
+  outputLimited?: boolean;
+  cellCollapsed?: boolean;
 }
 export type CellViewOption = keyof CellViewState;
 
@@ -52,6 +50,80 @@ interface NotebookProps {
   onStopEdit: (id: string) => void;
 }
 
+function ImageOutput({ text, data }: { text: string; data: string }) {
+  const image = useRef<HTMLImageElement>(null);
+  const [scaled, setScaled] = useState(false);
+  const [nativeSize, setNativeSize] = useState(false);
+  const [dimensions, setDimensions] = useState("");
+
+  useEffect(() => {
+    setNativeSize(false);
+  }, [data]);
+
+  useEffect(() => {
+    const element = image.current;
+    if (!element) return;
+    const measure = () => {
+      if (!element.complete || element.naturalWidth === 0) return;
+      setDimensions(`${element.naturalWidth} × ${element.naturalHeight}`);
+      setScaled(
+        element.naturalWidth > element.clientWidth + 1
+        || element.naturalHeight > element.clientHeight + 1,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [data, nativeSize]);
+
+  const canToggle = scaled || nativeSize;
+  const toggleSize = () => {
+    if (canToggle) setNativeSize((value) => !value);
+  };
+  const sizeAction = nativeSize
+    ? "Double-click to fit the image to the output"
+    : `Double-click to view the image at ${dimensions || "its original resolution"}`;
+
+  return (
+    <div
+      className={`output-image-frame ${nativeSize ? "is-native-size" : ""} ${scaled ? "is-scaled" : ""}`}
+      role={canToggle ? "button" : undefined}
+      tabIndex={canToggle ? 0 : undefined}
+      aria-label={canToggle ? sizeAction : undefined}
+      aria-pressed={canToggle ? nativeSize : undefined}
+      title={canToggle ? sizeAction : undefined}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSize();
+      }}
+      onKeyDown={(event) => {
+        if (!canToggle || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSize();
+      }}
+    >
+      <img
+        ref={image}
+        className="output-image"
+        src={`data:image/png;base64,${data}`}
+        alt={text || "Cell output"}
+        onLoad={() => {
+          const element = image.current;
+          if (!element) return;
+          setDimensions(`${element.naturalWidth} × ${element.naturalHeight}`);
+          setScaled(
+            element.naturalWidth > element.clientWidth + 1
+            || element.naturalHeight > element.clientHeight + 1,
+          );
+        }}
+      />
+    </div>
+  );
+}
+
 function RichOutput({ cellId, index, type, text, data }: {
   cellId: string;
   index: number;
@@ -60,7 +132,7 @@ function RichOutput({ cellId, index, type, text, data }: {
   data?: string;
 }) {
   if (type === "image" && data) {
-    return <img className="output-image" src={`data:image/png;base64,${data}`} alt={text || "Cell output"} />;
+    return <ImageOutput text={text} data={data} />;
   }
   if (type === "html" && data) {
     return (
@@ -74,6 +146,16 @@ function RichOutput({ cellId, index, type, text, data }: {
     );
   }
   return <pre className={type === "error" ? "is-error" : ""}>{text}</pre>;
+}
+
+function titleFromSource(cell: NotebookCell): string | null {
+  if (cell.kind !== "code") return null;
+  for (const line of cell.source.split("\n")) {
+    const match = line.match(/^\s*#\s*@title(?:\s+(.*?))?\s*$/);
+    const title = match?.[1]?.trim();
+    if (title) return title;
+  }
+  return null;
 }
 
 export function Notebook({
@@ -142,162 +224,147 @@ export function Notebook({
           const codexLocked = lockedCellIds.includes(cell.id);
           const cellLocked = locked || codexLocked;
           const view = cellViews[cell.id] ?? {};
-          const sourceLineCount = cell.source
-            ? cell.source.replace(/\n$/, "").split("\n").length
-            : 0;
-          const sourceLabel = cell.kind === "markdown" ? "Markdown" : cell.kind === "raw" ? "Raw source" : "Code";
+          const cellTitle = titleFromSource(cell);
+          const titleCollapsed = Boolean(cellTitle && view.cellCollapsed);
+          const canLimitOutput = cell.outputs.length > 0 && !titleCollapsed;
           return (
             <div className="notebook-cell-group" key={cell.id}>
-            <article
-              data-cell-id={cell.id}
-              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.scrollLimited ? "is-scroll-limited" : ""} ${view.sourceCollapsed ? "has-collapsed-source" : ""} ${view.outputCollapsed ? "has-collapsed-output" : ""}`}
-              tabIndex={0}
-              onFocus={() => onSelect(cell.id)}
-              onClick={() => onSelect(cell.id)}
-              onDoubleClick={() => { if (!cellLocked) onEdit(cell.id); }}
-              aria-label={`${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}`}
-            >
-              <div
-                className="cell-rail"
-                onDoubleClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onToggleCellView(cell.id, "scrollLimited");
-                }}
-              />
-              <div
-                className="cell-gutter"
-                title={view.scrollLimited ? "Double-click to show the full cell" : "Double-click to limit cell height and scroll"}
-                onDoubleClick={(event) => {
-                  event.stopPropagation();
-                  if ((event.target as HTMLElement).closest("button")) return;
-                  event.preventDefault();
-                  onToggleCellView(cell.id, "scrollLimited");
-                }}
+              <article
+                data-cell-id={cell.id}
+                className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
+                tabIndex={0}
+                onFocus={() => onSelect(cell.id)}
+                onClick={() => onSelect(cell.id)}
+                onDoubleClick={() => { if (!cellLocked) onEdit(cell.id); }}
+                aria-label={`${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}`}
               >
-                {cell.kind === "code" ? (
-                  <>
-                    <button
-                      className="run-button"
-                      disabled={cellLocked || !canRun || cell.state === "running"}
-                      onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
-                      aria-label="Run cell"
-                      title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
-                    >
-                      <PlayIcon />
-                    </button>
-                    <span className="execution-count">
-                      {cell.state === "running" ? "[…]" : cell.executionCount === null ? "[ ]" : `[${cell.executionCount}]`}
-                    </span>
-                  </>
-                ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>}
-                {codexLocked && <span className="cell-codex-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
-                {view.scrollLimited && <span className="cell-scroll-state" aria-hidden="true">↕</span>}
-              </div>
-              <div className="cell-body">
-                <div className="cell-actions" onDoubleClick={(event) => event.stopPropagation()}>
-                  <button
-                    className={view.scrollLimited ? "is-active" : ""}
-                    disabled={locked}
-                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "scrollLimited"); }}
-                    aria-label={view.scrollLimited ? "Show full cell height" : "Limit cell height with scrolling"}
-                    aria-pressed={Boolean(view.scrollLimited)}
-                    title={view.scrollLimited ? "Show full cell height" : "Limit cell height with scrolling"}
-                  ><HeightIcon /></button>
-                  <button
-                    className={view.sourceCollapsed ? "is-active" : ""}
-                    disabled={locked}
-                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "sourceCollapsed"); }}
-                    aria-label={view.sourceCollapsed ? `Show ${sourceLabel.toLowerCase()}` : `Collapse ${sourceLabel.toLowerCase()}`}
-                    aria-pressed={Boolean(view.sourceCollapsed)}
-                    title={view.sourceCollapsed ? `Show ${sourceLabel.toLowerCase()}` : `Collapse ${sourceLabel.toLowerCase()}`}
-                  ><CodeIcon /></button>
-                  {cell.outputs.length > 0 && (
-                    <button
-                      className={view.outputCollapsed ? "is-active" : ""}
-                      disabled={locked}
-                      onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "outputCollapsed"); }}
-                      aria-label={view.outputCollapsed ? "Show cell output" : "Collapse cell output"}
-                      aria-pressed={Boolean(view.outputCollapsed)}
-                      title={view.outputCollapsed ? "Show cell output" : "Collapse cell output"}
-                    ><OutputIcon /></button>
-                  )}
-                  <select
-                    value={cell.kind}
-                    disabled={cellLocked}
-                    onChange={(event) => onChangeKind(cell.id, event.target.value as CellKind)}
-                    onClick={(event) => event.stopPropagation()}
-                    aria-label="Cell type"
-                  >
-                    <option value="code">Code</option>
-                    <option value="markdown">Markdown</option>
-                    <option value="raw">Raw</option>
-                  </select>
-                  <button className="cell-delete" disabled={cellLocked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
-                </div>
-                {view.sourceCollapsed ? (
-                  <button
-                    type="button"
-                    className="cell-collapsed-summary source-collapsed-summary"
-                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "sourceCollapsed"); }}
-                    onDoubleClick={(event) => event.stopPropagation()}
-                    disabled={locked}
-                    title={`Show ${sourceLabel.toLowerCase()}`}
-                  >
-                    <CodeIcon /><strong>{sourceLabel} hidden</strong><span>{sourceLineCount} line{sourceLineCount === 1 ? "" : "s"}</span><ChevronIcon />
-                  </button>
-                ) : (
-                  <div className="cell-source">
-                    {cell.kind === "markdown" && !editing ? (
-                      <div
-                        className="markdown-rendered"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (!cellLocked) onEdit(cell.id);
-                        }}
+                <div
+                  className="cell-rail"
+                  onDoubleClick={(event) => {
+                    if (!canLimitOutput) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onToggleCellView(cell.id, "outputLimited");
+                  }}
+                />
+                <div
+                  className="cell-gutter"
+                  title={canLimitOutput
+                    ? view.outputLimited
+                      ? "Double-click to show the full output"
+                      : "Double-click to limit output height"
+                    : undefined}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    if (!canLimitOutput || (event.target as HTMLElement).closest("button")) return;
+                    event.preventDefault();
+                    onToggleCellView(cell.id, "outputLimited");
+                  }}
+                >
+                  {!titleCollapsed && (cell.kind === "code" ? (
+                    <>
+                      <button
+                        className="run-button"
+                        disabled={cellLocked || !canRun || cell.state === "running"}
+                        onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
+                        aria-label="Run cell"
+                        title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
                       >
-                        <ReactMarkdown>{cell.source}</ReactMarkdown>
-                      </div>
-                    ) : (
-                      <CellEditor
-                        kind={cell.kind}
-                        source={cell.source}
-                        vimEnabled={vimEnabled}
-                        readOnly={cellLocked}
-                        onChange={(source) => onChange(cell.id, source)}
-                        onRun={(advance, insert) => onRun(cell.id, advance, insert)}
-                        onModeChange={(nextMode) => {
-                          onModeChange(nextMode);
-                          if (nextMode === "NAV") onStopEdit(cell.id);
-                        }}
-                      />
+                        <PlayIcon />
+                      </button>
+                      <span className="execution-count">
+                        {cell.state === "running" ? "[…]" : cell.executionCount === null ? "[ ]" : `[${cell.executionCount}]`}
+                      </span>
+                    </>
+                  ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>)}
+                  {!titleCollapsed && codexLocked && <span className="cell-codex-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
+                  {!titleCollapsed && view.outputLimited && <span className="cell-scroll-state" aria-hidden="true">↕</span>}
+                </div>
+                <div className="cell-body">
+                {!titleCollapsed && (
+                  <div className="cell-actions" onDoubleClick={(event) => event.stopPropagation()}>
+                    {cell.outputs.length > 0 && (
+                      <button
+                        className={view.outputLimited ? "is-active" : ""}
+                        disabled={locked}
+                        onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "outputLimited"); }}
+                        aria-label={view.outputLimited ? "Show full output height" : "Limit output height"}
+                        aria-pressed={Boolean(view.outputLimited)}
+                        title={view.outputLimited ? "Show full output height" : "Limit output height"}
+                      ><HeightIcon /></button>
                     )}
+                    <select
+                      value={cell.kind}
+                      disabled={cellLocked}
+                      onChange={(event) => onChangeKind(cell.id, event.target.value as CellKind)}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label="Cell type"
+                    >
+                      <option value="code">Code</option>
+                      <option value="markdown">Markdown</option>
+                      <option value="raw">Raw</option>
+                    </select>
+                    <button className="cell-delete" disabled={cellLocked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
                   </div>
                 )}
-                {cell.outputs.length > 0 && (view.outputCollapsed ? (
-                  <button
-                    type="button"
-                    className="cell-collapsed-summary output-collapsed-summary"
-                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "outputCollapsed"); }}
-                    onDoubleClick={(event) => event.stopPropagation()}
-                    disabled={locked}
-                    title="Show cell output"
-                  >
-                    <OutputIcon /><strong>Output hidden</strong><span>{cell.outputs.length} item{cell.outputs.length === 1 ? "" : "s"}</span><ChevronIcon />
-                  </button>
-                ) : (
-                  <div className="cell-output">
-                    {cell.outputs.map((output, index) => (
-                      <RichOutput key={`${cell.id}-${index}`} cellId={cell.id} index={index} {...output} />
-                    ))}
-                  </div>
-                ))}
+                {cellTitle && (
+                  <header className="cell-title-bar" onDoubleClick={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="cell-title-toggle"
+                      onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "cellCollapsed"); }}
+                      disabled={locked}
+                      aria-label={titleCollapsed ? `Expand ${cellTitle}` : `Collapse ${cellTitle}`}
+                      aria-expanded={!titleCollapsed}
+                      title={titleCollapsed ? "Expand titled cell" : "Collapse titled cell"}
+                    ><ChevronIcon /></button>
+                    <h2>{cellTitle}</h2>
+                    {titleCollapsed && codexLocked && <span className="cell-title-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
+                  </header>
+                )}
+                {!titleCollapsed && (
+                  <>
+                    <div className="cell-source">
+                      {cell.kind === "markdown" && !editing ? (
+                        <div
+                          className="markdown-rendered"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (!cellLocked) onEdit(cell.id);
+                          }}
+                        >
+                          <ReactMarkdown>{cell.source}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <CellEditor
+                          kind={cell.kind}
+                          source={cell.source}
+                          vimEnabled={vimEnabled}
+                          readOnly={cellLocked}
+                          onChange={(source) => onChange(cell.id, source)}
+                          onRun={(advance, insert) => onRun(cell.id, advance, insert)}
+                          onModeChange={(nextMode) => {
+                            onModeChange(nextMode);
+                            if (nextMode === "NAV") onStopEdit(cell.id);
+                          }}
+                        />
+                      )}
+                    </div>
+                    {cell.outputs.length > 0 && (
+                      <div className={`cell-output ${view.outputLimited ? "is-height-limited" : ""}`}>
+                        {cell.outputs.map((output, index) => (
+                          <RichOutput key={`${cell.id}-${index}`} cellId={cell.id} index={index} {...output} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+                </div>
+              </article>
+              <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>
+                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "code")}><span>+</span> Code</button>
+                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "markdown")}><span>+</span> Markdown</button>
               </div>
-            </article>
-            <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>
-              <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "code")}><span>+</span> Code</button>
-              <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "markdown")}><span>+</span> Markdown</button>
-            </div>
             </div>
           );
         })}

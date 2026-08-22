@@ -153,9 +153,12 @@ function storedCellViews(value: unknown): Record<string, Record<string, CellView
       if (!viewValue || typeof viewValue !== "object" || Array.isArray(viewValue)) continue;
       const record = viewValue as Record<string, unknown>;
       const view: CellViewState = {};
-      if (record.scrollLimited === true) view.scrollLimited = true;
-      if (record.sourceCollapsed === true) view.sourceCollapsed = true;
-      if (record.outputCollapsed === true) view.outputCollapsed = true;
+      if (
+        record.outputLimited === true
+        || record.scrollLimited === true
+        || record.outputCollapsed === true
+      ) view.outputLimited = true;
+      if (record.cellCollapsed === true) view.cellCollapsed = true;
       if (Object.keys(view).length) cells[cellId] = view;
     }
     if (Object.keys(cells).length) notebooks[notebookPath] = cells;
@@ -1193,7 +1196,7 @@ export default function App() {
     if (!notebookPath) return;
     const path = notebookPath;
     const isEnabled = Boolean(cellViewsByNotebook[path]?.[id]?.[option]);
-    if (option === "sourceCollapsed" && !isEnabled) {
+    if (option === "cellCollapsed" && !isEnabled) {
       setEditingId(null);
       setMode("NAV");
     }
