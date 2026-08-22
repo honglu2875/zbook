@@ -544,9 +544,26 @@ export function CodexPanel({
 
   function appendActivity(itemId: string, delta: string) {
     const id = `activity-${itemId}`;
+    const pendingAssistant = activeAssistant.current;
     setMessages((current) => {
       const found = current.some((message) => message.id === id);
-      if (!found) return [...current, { id, role: "activity", text: delta }];
+      if (!found) {
+        const activity: Message = { id, role: "activity", text: delta };
+        const pendingIndex = current.findIndex((message) => (
+          message.id === pendingAssistant
+          && message.role === "assistant"
+          && message.pending
+          && !message.text
+        ));
+        if (pendingIndex >= 0) {
+          return [
+            ...current.slice(0, pendingIndex),
+            activity,
+            ...current.slice(pendingIndex),
+          ];
+        }
+        return [...current, activity];
+      }
       return current.map((message) => message.id === id
         ? { ...message, text: `${message.text}${delta}`.slice(-12_000) }
         : message);
@@ -806,7 +823,7 @@ export function CodexPanel({
         ? message.messages.flatMap((item): Message[] => {
           if (!item || typeof item !== "object") return [];
           const record = item as Record<string, unknown>;
-          if ((record.role !== "user" && record.role !== "assistant")
+          if ((record.role !== "user" && record.role !== "assistant" && record.role !== "activity")
             || typeof record.text !== "string") return [];
           return [{
             id: typeof record.id === "string" ? record.id : crypto.randomUUID(),

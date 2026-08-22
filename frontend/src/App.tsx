@@ -103,6 +103,16 @@ const MIN_NOTEBOOK_WIDTH = 360;
 const LEFT_PANE_STORAGE = "zbook.layout.leftWidth";
 const RIGHT_PANE_STORAGE = "zbook.layout.rightWidth";
 const WORKSPACE_SESSION_VERSION = 1;
+const NOTEBOOK_AVAILABLE_ACTIONS = [
+  { action: "read_cells", tool: NOTEBOOK_READ_TOOL },
+  {
+    action: "lock_cells",
+    tool: NOTEBOOK_LOCK_TOOL,
+    note: "Lock relevant existing cells before further reasoning or editing.",
+  },
+  { action: "unlock_cells", tool: NOTEBOOK_LOCK_TOOL },
+  { action: "apply_changes", tool: NOTEBOOK_APPLY_TOOL },
+] as const;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
@@ -682,6 +692,7 @@ export default function App() {
           saveState: current.saveState,
           sourceIncluded: includeSource,
           lockedCellIds: codexLockedCellIds(current.notebookPath),
+          availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
           cells: current.cells.map((cell, index) => ({
             index,
             id: cell.id,
@@ -792,6 +803,7 @@ export default function App() {
           affectedCellIds: requestedIds,
           lockedCellIds: orderedLocks,
           automaticRelease: "turn_end",
+          availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
         },
       };
     }
@@ -816,6 +828,17 @@ export default function App() {
           message: "Lock every existing cell affected by the operation before applying changes.",
           missingCellIds: missingLocks,
           lockedCellIds: [...heldLocks],
+          nextAction: {
+            tool: NOTEBOOK_LOCK_TOOL,
+            arguments: {
+              notebookPath: current.notebookPath,
+              expectedRevision: revision.current,
+              action: "lock",
+              cellIds: missingLocks,
+            },
+          },
+          instruction: "Call nextAction.tool with nextAction.arguments; do not ask the user to lock cells in the UI.",
+          availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
         },
       };
     }
@@ -866,6 +889,7 @@ export default function App() {
           affectedCellIds: applied.affectedCellIds,
           insertedCellIds: applied.insertedCellIds,
           lockedCellIds: codexLockedCellIds(current.notebookPath),
+          availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
           cellCount: applied.cells.length,
           saved: true,
           undoAvailable: true,

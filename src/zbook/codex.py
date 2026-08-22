@@ -33,7 +33,10 @@ investigation, reasoning, or tool actions; expand the locked set later if needed
 while you read, reason, edit, check, and revise across the turn; unlock cells early only when they
 are no longer relevant. Locks do not change documentRevision.
 All remaining locks release automatically when the turn ends. If an operation reports a conflict,
-read again before retrying.
+read again before retrying. If you are unsure which notebook actions are currently available, call
+zbook_notebook_read: its availableActions field is the authoritative live tool inventory. If an
+apply call reports cells_not_locked, immediately call the exact tool and arguments returned in
+nextAction; never ask the user to lock cells in the UI.
 For a reorder-only task, read with includeSource false, lock the cells whose positions matter,
 then use move_after or swap operations in zbook_notebook_apply without resending source. Shell
 tools remain appropriate for non-notebook workspace files."""
@@ -46,7 +49,8 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
             "Read the notebook currently open in the Zbook UI, including stable cell IDs and the "
             "document revision needed for edits. Use this instead of reading the .ipynb with shell "
             "commands. Set includeSource to false for reorder-only work to avoid loading cell "
-            "contents into context; it defaults to true."
+            "contents into context; it defaults to true. Every response also reports the live "
+            "availableActions tool inventory, making this the capability-discovery endpoint."
         ),
         "inputSchema": {
             "type": "object",
@@ -102,7 +106,8 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
             "with zbook_notebook_lock, then pass the exact notebookPath and documentRevision. Use "
             "this instead of shell commands or apply_patch for .ipynb edits. Operations run in "
             "order and the whole batch is rejected on missing locks, invalid input, or a "
-            "concurrent UI change. Insert-only operations do not require a pre-existing lock."
+            "concurrent UI change. A missing-lock rejection returns the exact lock nextAction to "
+            "call. Insert-only operations do not require a pre-existing lock."
         ),
         "inputSchema": {
             "type": "object",

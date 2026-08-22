@@ -28,6 +28,8 @@ _NOTEBOOK_TOOLS = {
 _NOTEBOOK_TOOL_TIMEOUT = 45.0
 _PREFERRED_MODEL = "gpt-5.6-luna"
 _PREFERRED_EFFORT = "medium"
+_ZBOOK_CONTEXT_MARKER = "\n\nZbook context supplied by the user:\n"
+_MAX_ACTIVITY_TEXT = 12_000
 
 
 def choose_default_model(models: list[dict[str, Any]]) -> tuple[str | None, str | None]:
@@ -83,7 +85,7 @@ def prompt_with_context(prompt: str, context: Any) -> str:
         )
     if not details:
         return value
-    return f"{value}\n\nZbook context supplied by the user:\n" + "\n\n".join(details)
+    return f"{value}{_ZBOOK_CONTEXT_MARKER}" + "\n\n".join(details)
 
 
 def dynamic_tool_response(success: bool, result: Any) -> dict[str, Any]:
@@ -113,8 +115,62 @@ def _message_content_text(content: Any) -> str:
     return "\n".join(part for part in parts if part)
 
 
+def _visible_user_text(text: str) -> str:
+    """Remove context Zbook appended for Codex but never intended to display as user prose."""
+    visible, marker, context = text.partition(_ZBOOK_CONTEXT_MARKER)
+    generated_context = context.startswith(("Open notebook: ", "Selected "))
+    return visible.rstrip() if marker and generated_context else text
+
+
+def _activity_text(item: dict[str, Any]) -> str:
+    """Reconstruct the same compact activity summary used by the live Zbook client."""
+    item_type = item.get("type")
+    status = item.get("status") if isinstance(item.get("status"), str) else "completed"
+    if item_type == "commandExecution":
+        command = item.get("command") if isinstance(item.get("command"), str) else "Command"
+        output = (
+            item.get("aggregatedOutput")
+            if isinstance(item.get("aggregatedOutput"), str)
+            else ""
+        )
+        output_text = output
+        if output_text and not output_text.endswith("\n"):
+            output_text += "\n"
+        text = f"$ {command}\n{output_text}{'✓' if status == 'completed' else '·'} {status}\n"
+        return text[-_MAX_ACTIVITY_TEXT:]
+    if item_type == "fileChange":
+        changes = item.get("changes") if isinstance(item.get("changes"), list) else []
+        paths = [
+            str(change["path"])
+            for change in changes
+            if isinstance(change, dict) and "path" in change
+        ]
+        start = f"Editing {', '.join(paths)}\n" if paths else "Editing workspace files\n"
+        finish = "✓ Changes applied\n" if status == "completed" else f"· {status}\n"
+        return f"{start}{finish}"[-_MAX_ACTIVITY_TEXT:]
+    if item_type == "dynamicToolCall":
+        tool = item.get("tool") if isinstance(item.get("tool"), str) else ""
+        start = {
+            "zbook_notebook_lock": "Updating turn-scoped cell locks…\n",
+            "zbook_notebook_apply": "Applying cell changes through Zbook…\n",
+            "zbook_notebook_read": "Reading cells through Zbook…\n",
+        }.get(tool)
+        if start is None:
+            return ""
+        succeeded = item.get("success") is True or (
+            item.get("success") is None and status == "completed"
+        )
+        finish = (
+            "✓ Zbook notebook tool completed\n"
+            if succeeded
+            else "· Zbook notebook tool rejected the change\n"
+        )
+        return f"{start}{finish}"
+    return ""
+
+
 def thread_messages(thread: Any) -> list[dict[str, str]]:
-    """Reduce a persisted App Server thread to the conversation shown by Zbook."""
+    """Normalize a persisted App Server thread into Zbook's visible transcript."""
     if not isinstance(thread, dict) or not isinstance(thread.get("turns"), list):
         return []
     messages: list[dict[str, str]] = []
@@ -127,20 +183,25 @@ def thread_messages(thread: Any) -> list[dict[str, str]]:
             item_type = item.get("type")
             if item_type == "userMessage":
                 role = "user"
-                text = _message_content_text(item.get("content"))
+                text = _visible_user_text(_message_content_text(item.get("content")))
             elif item_type == "agentMessage":
                 role = "assistant"
                 text = item.get("text") if isinstance(item.get("text"), str) else ""
             else:
-                continue
+                role = "activity"
+                text = _activity_text(item)
             if not text.strip():
                 continue
             item_id = item.get("id")
             messages.append(
                 {
-                    "id": item_id
-                    if isinstance(item_id, str)
-                    else f"history-{turn_index}-{item_index}",
+                    "id": (
+                        f"activity-{item_id}"
+                        if role == "activity" and isinstance(item_id, str)
+                        else item_id
+                        if isinstance(item_id, str)
+                        else f"history-{turn_index}-{item_index}"
+                    ),
                     "role": role,
                     "text": text,
                 }

@@ -135,6 +135,9 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             NOTEBOOK_TOOL_INSTRUCTIONS,
         )
         self.assertIn("release automatically", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("availableActions", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("exact tool and arguments returned in", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("capability-discovery endpoint", tools["zbook_notebook_read"]["description"])
 
     async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -154,7 +157,16 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(calls[1].args[1]["model"], "gpt-5.6-luna")
             self.assertEqual(calls[1].args[1]["dynamicTools"], NOTEBOOK_DYNAMIC_TOOLS)
 
-    def test_thread_messages_extracts_only_user_and_agent_text(self) -> None:
+    def test_thread_messages_hide_private_context_and_restore_activity(self) -> None:
+        stored_prompt = prompt_with_context(
+            "Explain this",
+            {
+                "notebook": "analysis.ipynb",
+                "cellKind": "code",
+                "cellId": "cell-42",
+                "source": 'print("before")\n\nZbook context supplied by the user:\nprint("after")',
+            },
+        )
         messages = thread_messages(
             {
                 "turns": [
@@ -163,9 +175,28 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
                             {
                                 "id": "user-1",
                                 "type": "userMessage",
-                                "content": [{"type": "text", "text": "Explain this"}],
+                                "content": [{"type": "text", "text": stored_prompt}],
                             },
-                            {"id": "cmd-1", "type": "commandExecution", "command": "pwd"},
+                            {
+                                "id": "cmd-1",
+                                "type": "commandExecution",
+                                "command": "pwd",
+                                "aggregatedOutput": "/workspace\n",
+                                "status": "completed",
+                            },
+                            {
+                                "id": "file-1",
+                                "type": "fileChange",
+                                "changes": [{"path": "analysis.py", "kind": "update"}],
+                                "status": "completed",
+                            },
+                            {
+                                "id": "tool-1",
+                                "type": "dynamicToolCall",
+                                "tool": "zbook_notebook_read",
+                                "status": "completed",
+                                "success": True,
+                            },
                             {
                                 "id": "agent-1",
                                 "type": "agentMessage",
@@ -182,12 +213,31 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             [
                 {"id": "user-1", "role": "user", "text": "Explain this"},
                 {
+                    "id": "activity-cmd-1",
+                    "role": "activity",
+                    "text": "$ pwd\n/workspace\n✓ completed\n",
+                },
+                {
+                    "id": "activity-file-1",
+                    "role": "activity",
+                    "text": "Editing analysis.py\n✓ Changes applied\n",
+                },
+                {
+                    "id": "activity-tool-1",
+                    "role": "activity",
+                    "text": "Reading cells through Zbook…\n✓ Zbook notebook tool completed\n",
+                },
+                {
                     "id": "agent-1",
                     "role": "assistant",
                     "text": "Here is the explanation.",
                 },
             ],
         )
+        rendered = "\n".join(message["text"] for message in messages)
+        self.assertNotIn("Zbook context supplied by the user", rendered)
+        self.assertNotIn("analysis.ipynb", rendered)
+        self.assertNotIn("cell-42", rendered)
 
     def test_dynamic_tool_response_matches_app_server_shape(self) -> None:
         response = dynamic_tool_response(True, {"documentRevision": 7, "saved": True})
