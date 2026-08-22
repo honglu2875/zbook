@@ -22,12 +22,12 @@ _APPROVAL_DECISIONS = {"accept", "acceptForSession", "decline", "cancel"}
 _NOTEBOOK_TOOL_METHOD = "item/tool/call"
 _NOTEBOOK_TOOLS = {"zbook_notebook_read", "zbook_notebook_apply"}
 _NOTEBOOK_TOOL_TIMEOUT = 45.0
-_PREFERRED_MODEL = "gpt-5.6-terra"
+_PREFERRED_MODEL = "gpt-5.6-luna"
 _PREFERRED_EFFORT = "medium"
 
 
 def choose_default_model(models: list[dict[str, Any]]) -> tuple[str | None, str | None]:
-    """Prefer Terra/medium while respecting the catalog exposed by this CLI/account."""
+    """Prefer Luna/medium while respecting the catalog exposed by this CLI/account."""
     if not models:
         return None, None
     selected = next(

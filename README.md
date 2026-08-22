@@ -9,11 +9,12 @@ The design target is closer to Zed than JupyterLab: flat surfaces, restrained co
 The main notebook loop is functional:
 
 - the file tree is served by Jupyter's Contents API and is rooted at the configured workspace;
-- notebooks can be created, opened in closable tabs, renamed, deleted, uploaded, autosaved, and exported as `.ipynb`;
+- notebooks can be created, opened in closable tabs, renamed inline by double-clicking a tab, deleted, uploaded, autosaved, and exported as `.ipynb`;
+- the workspace and Codex panes are draggable, keyboard-resizable, and remember their widths across reloads;
 - refreshing the workspace also reloads the active notebook from disk (after confirming before discarding local unsaved changes);
 - folders can be selected and created, and arbitrary files can be uploaded;
 - code cells execute on a real IPython kernel with streamed text, errors, HTML, and PNG output;
-- Markdown cells render in place; code and Markdown editors have syntax highlighting and optional Vim bindings;
+- Markdown cells render in place; code and Markdown editors have syntax highlighting, bundled JetBrains Mono typography, and optional Vim bindings; the UI and prose use bundled Inter;
 - **Run all**, execution counts, interrupt, and keyboard execution commands work;
 - the environment panel lists packages and installs or uninstalls them through serialized `uv` operations;
 - a fresh launch defaults to a scratch uv environment under `/tmp`, prepares `ipykernel`, and removes the scratch environment on shutdown;
@@ -21,7 +22,7 @@ The main notebook loop is functional:
 - the Codex panel uses the locally signed-in Codex CLI and ChatGPT subscription—no application API key—and streams turns through Codex App Server;
 - Codex receives optional notebook/cell context and exposes live command/file activity plus any required approvals;
 - Codex gets dedicated read/apply cell tools: notebook edits go directly through React, are revision-checked, briefly lock the editor, apply atomically, and save without a shell/edit/refresh round trip;
-- the Codex pane reads the installed CLI's model catalog and subscription rate limits, defaults to GPT-5.6-Terra with medium reasoning when available, and provides model/effort pickers, quota refresh, sign-in, and sign-out.
+- the Codex pane reads the installed CLI's model catalog and subscription rate limits, defaults to GPT-5.6-Luna with medium reasoning when available, and provides model/effort pickers, quota refresh, sign-in, and sign-out.
 
 This is still a focused checkpoint, not a JupyterLab replacement. Tabs share one workspace kernel and save before switching; non-notebook files are managed but not edited; Jupyter widgets and arbitrary JavaScript outputs are not supported; and Codex threads are currently ephemeral.
 

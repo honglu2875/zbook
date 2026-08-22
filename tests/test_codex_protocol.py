@@ -57,18 +57,18 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(await future, {"ok": True})
 
-    def test_default_model_prefers_terra_with_medium_effort(self) -> None:
+    def test_default_model_prefers_luna_with_medium_effort(self) -> None:
         models = [
             {
-                "id": "gpt-default",
-                "model": "gpt-default",
+                "id": "gpt-5.6-terra",
+                "model": "gpt-5.6-terra",
                 "isDefault": True,
                 "defaultReasoningEffort": "low",
                 "supportedReasoningEfforts": [{"reasoningEffort": "low"}],
             },
             {
-                "id": "gpt-5.6-terra",
-                "model": "gpt-5.6-terra",
+                "id": "gpt-5.6-luna",
+                "model": "gpt-5.6-luna",
                 "isDefault": False,
                 "defaultReasoningEffort": "medium",
                 "supportedReasoningEfforts": [
@@ -79,7 +79,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
 
-        self.assertEqual(choose_default_model(models), ("gpt-5.6-terra", "medium"))
+        self.assertEqual(choose_default_model(models), ("gpt-5.6-luna", "medium"))
 
     async def test_thread_starts_workspace_write_and_ephemeral(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

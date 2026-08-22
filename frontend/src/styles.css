@@ -14,8 +14,8 @@
   --blue: #83b7d7;
   --green: #8fb59d;
   --red: #df8587;
-  --font-ui: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Berkeley Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-ui: "Inter Variable", Inter, Roboto, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", Iosevka, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-family: var(--font-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -62,8 +62,12 @@ svg {
   transition: grid-template-columns 120ms ease-out;
 }
 
-.app-shell.has-left { --left-width: 226px; }
-.app-shell.has-right { --right-width: 348px; }
+.app-shell.has-left { --left-width: var(--left-pane-width, 226px); }
+.app-shell.has-right { --right-width: var(--right-pane-width, 348px); }
+
+body.is-resizing-pane { cursor: col-resize; user-select: none; }
+body.is-resizing-pane::after { position: fixed; z-index: 1000; inset: 0; content: ""; cursor: col-resize; }
+body.is-resizing-pane .app-shell { transition: none; }
 
 .titlebar {
   grid-area: title;
@@ -113,6 +117,26 @@ svg {
   border-right: 1px solid var(--border);
   user-select: none;
 }
+
+.pane-resizer {
+  z-index: 15;
+  align-self: stretch;
+  width: 7px;
+  touch-action: none;
+  cursor: col-resize;
+}
+.pane-resizer::after {
+  display: block;
+  width: 1px;
+  height: 100%;
+  margin: auto;
+  background: transparent;
+  content: "";
+  transition: background 80ms;
+}
+.pane-resizer:hover::after, .pane-resizer:focus-visible::after { background: #8e754e; }
+.pane-resizer-left { grid-area: files; justify-self: end; transform: translateX(3px); }
+.pane-resizer-right { grid-area: codex; justify-self: start; transform: translateX(-3px); }
 
 .panel-heading, .codex-heading {
   display: flex;
@@ -184,7 +208,7 @@ svg {
 .tree-loading { width: 7px; height: 7px; margin-left: auto; border: 1px solid #747b81; border-right-color: transparent; border-radius: 50%; animation: spin 650ms linear infinite; }
 .tree-empty { padding: 7px 17px; color: #565c62; font-size: 10px; font-style: italic; }
 
-.environment-block { position: absolute; bottom: 25px; width: 225px; border-top: 1px solid var(--border); padding: 10px; }
+.environment-block { position: absolute; bottom: 25px; width: 100%; border-top: 1px solid var(--border); padding: 10px; }
 .environment-label { display: block; margin: 0 0 7px 2px; color: #686e74; font-size: 9px; font-weight: 650; letter-spacing: .1em; }
 .environment-button {
   display: flex;
@@ -255,9 +279,29 @@ svg {
   color: inherit !important;
   text-align: left;
 }
+.tab-rename-editor {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  gap: 7px;
+  padding: 0 5px 0 12px;
+}
+.tab-rename-input {
+  width: 100%;
+  min-width: 0;
+  height: 23px;
+  padding: 0 4px;
+  border: 1px solid #6a5840;
+  border-radius: 2px;
+  outline: 0;
+  background: #17191b;
+  color: #d6d9dc;
+  font: 11px var(--font-ui);
+}
 .tab-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-select i { width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: #666d73; }
-.tab-select i.is-dirty { background: var(--accent); }
+.tab-select i, .tab-rename-editor > i { width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: #666d73; }
+.tab-select i.is-dirty, .tab-rename-editor > i.is-dirty { background: var(--accent); }
 .tab-close {
   align-self: stretch;
   width: 29px;
@@ -496,7 +540,7 @@ svg {
 .conversation { overflow-y: auto; padding: 18px 14px 12px; scrollbar-color: #383c40 transparent; scrollbar-width: thin; }
 .message { margin: 0 0 20px; }
 .message > span { display: block; margin-bottom: 6px; color: #666c72; font-size: 9px; font-weight: 650; letter-spacing: .09em; }
-.message p { margin: 0; color: #a7acb1; font-size: 12.5px; line-height: 1.58; }
+.message p { margin: 0; color: #a7acb1; font-size: 12.5px; line-height: 1.58; letter-spacing: 0; word-spacing: 0; }
 .message p + p { margin-top: 8px; }
 .message h1, .message h2, .message h3 { margin: 10px 0 6px; color: #d1d3d5; font-size: 13px; font-weight: 600; }
 .message ul, .message ol { margin: 7px 0; padding-left: 19px; color: #a7acb1; font-size: 12px; line-height: 1.55; }
@@ -565,16 +609,16 @@ svg {
 @keyframes thinking { from { opacity: .35; transform: translateX(0); } to { opacity: 1; transform: translateX(3px); } }
 
 @media (max-width: 1080px) {
-  .app-shell.has-left { --left-width: 202px; }
-  .environment-block { width: 201px; }
-  .app-shell.has-right { --right-width: 310px; }
+  .app-shell.has-left { --left-width: min(var(--left-pane-width, 226px), 202px); }
+  .app-shell.has-right { --right-width: min(var(--right-pane-width, 348px), 310px); }
   .notebook-canvas { padding-right: 22px; padding-left: 22px; }
 }
 
 @media (max-width: 800px) {
   .app-shell.has-left { --left-width: 0px; }
   .file-panel { display: none; }
-  .app-shell.has-right { --right-width: 280px; }
+  .pane-resizer-left { display: none; }
+  .app-shell.has-right { --right-width: min(var(--right-pane-width, 348px), 280px); }
   .notebook-canvas { padding: 28px 14px 0; }
   .notebook-title-row { margin-left: 39px; }
   .notebook-cell { grid-template-columns: 39px minmax(0, 1fr); }
@@ -584,5 +628,6 @@ svg {
 @media (max-width: 620px) {
   .app-shell.has-right { --right-width: 0px; }
   .codex-panel { display: none; }
+  .pane-resizer-right { display: none; }
   .title-actions .run-all { display: none; }
 }

@@ -85,7 +85,9 @@ interface QuotaView {
   weekly: boolean;
 }
 
-const MODEL_STORAGE = "zbook.codex.model";
+// Version the preference once so browsers that auto-saved the former Terra
+// default receive the new Luna default. Explicit choices persist from here on.
+const MODEL_STORAGE = "zbook.codex.model.v2";
 const EFFORT_STORAGE = "zbook.codex.effort";
 const WEEK_MINUTES = 7 * 24 * 60;
 

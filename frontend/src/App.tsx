@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { CodexPanel } from "./components/CodexPanel";
 import { EnvironmentPanel } from "./components/EnvironmentPanel";
 import { FileTree } from "./components/FileTree";
@@ -57,6 +64,39 @@ interface ServerStatus {
   };
 }
 
+type PaneSide = "left" | "right";
+
+const LEFT_PANE_DEFAULT = 226;
+const RIGHT_PANE_DEFAULT = 348;
+const LEFT_PANE_MIN = 170;
+const RIGHT_PANE_MIN = 270;
+const LEFT_PANE_MAX = 520;
+const RIGHT_PANE_MAX = 620;
+const MIN_NOTEBOOK_WIDTH = 360;
+const LEFT_PANE_STORAGE = "zbook.layout.leftWidth";
+const RIGHT_PANE_STORAGE = "zbook.layout.rightWidth";
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+function storedPaneWidth(key: string, fallback: number, minimum: number, maximum: number): number {
+  try {
+    const value = Number(window.localStorage.getItem(key));
+    return Number.isFinite(value) && value > 0 ? clamp(value, minimum, maximum) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function storePaneWidth(key: string, value: number) {
+  try {
+    window.localStorage.setItem(key, String(Math.round(value)));
+  } catch {
+    // Layout persistence is optional when browser storage is unavailable.
+  }
+}
+
 function parentPath(path: string): string {
   const parts = path.split("/");
   parts.pop();
@@ -82,6 +122,20 @@ export default function App() {
   const [vimEnabled, setVimEnabled] = useState(true);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const [leftPaneWidth, setLeftPaneWidth] = useState(() => storedPaneWidth(
+    LEFT_PANE_STORAGE,
+    LEFT_PANE_DEFAULT,
+    LEFT_PANE_MIN,
+    LEFT_PANE_MAX,
+  ));
+  const [rightPaneWidth, setRightPaneWidth] = useState(() => storedPaneWidth(
+    RIGHT_PANE_STORAGE,
+    RIGHT_PANE_DEFAULT,
+    RIGHT_PANE_MIN,
+    RIGHT_PANE_MAX,
+  ));
+  const [renamingTabPath, setRenamingTabPath] = useState<string | null>(null);
+  const [renamingTabName, setRenamingTabName] = useState("");
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [directories, setDirectories] = useState<Record<string, ContentEntry[]>>({});
@@ -114,6 +168,7 @@ export default function App() {
 
   useEffect(() => () => {
     void kernelClient.current?.shutdown();
+    document.body.classList.remove("is-resizing-pane");
   }, []);
 
   useEffect(() => {
@@ -592,35 +647,76 @@ export default function App() {
     }
   }
 
-  async function renameContent(entry: ContentEntry) {
-    const requested = window.prompt(`Rename ${entry.name}`, entry.name)?.trim();
-    if (!requested || requested === entry.name) return;
+  async function renamePath(entryPath: string, entryName: string, requestedName?: string) {
+    const requested = (requestedName ?? window.prompt(`Rename ${entryName}`, entryName))?.trim();
+    if (!requested || requested === entryName) return;
     if (requested.includes("/") || requested.includes("\\")) {
       setNotice("A file name cannot contain path separators.");
       return;
     }
-    const parent = parentPath(entry.path);
+    const parent = parentPath(entryPath);
     const newPath = parent ? `${parent}/${requested}` : requested;
     const activePath = documentRef.current.notebookPath;
-    const containsActive = Boolean(activePath && isSameOrChild(activePath, entry.path));
+    const containsActive = Boolean(activePath && isSameOrChild(activePath, entryPath));
     if (containsActive && notebookTransitionBlocked()) return;
+    setBusy(true);
     try {
       if (containsActive && !(await ensureDocumentSaved())) return;
-      await renameEntry(entry.path, newPath);
-      if (activePath && containsActive) setNotebookPath(`${newPath}${activePath.slice(entry.path.length)}`);
-      setOpenTabs((current) => [
-        ...new Set(current.map((path) => (
-          isSameOrChild(path, entry.path) ? `${newPath}${path.slice(entry.path.length)}` : path
-        ))),
-      ]);
-      if (treeDirectory === entry.path || treeDirectory.startsWith(`${entry.path}/`)) {
-        setTreeDirectory(`${newPath}${treeDirectory.slice(entry.path.length)}`);
+      await renameEntry(entryPath, newPath);
+      if (activePath && containsActive) {
+        const nextActivePath = `${newPath}${activePath.slice(entryPath.length)}`;
+        documentRef.current = { ...documentRef.current, notebookPath: nextActivePath };
+        setNotebookPath(nextActivePath);
+      }
+      setOpenTabs((current) => {
+        const next = [
+          ...new Set(current.map((path) => (
+            isSameOrChild(path, entryPath) ? `${newPath}${path.slice(entryPath.length)}` : path
+          ))),
+        ];
+        openTabsRef.current = next;
+        return next;
+      });
+      if (treeDirectory === entryPath || treeDirectory.startsWith(`${entryPath}/`)) {
+        setTreeDirectory(`${newPath}${treeDirectory.slice(entryPath.length)}`);
       }
       await loadDirectory(parent, true);
       setNotice(`Renamed to ${requested}`);
     } catch (error) {
       setNotice(`Rename failed: ${String(error)}`);
+    } finally {
+      setBusy(false);
     }
+  }
+
+  async function renameContent(entry: ContentEntry) {
+    await renamePath(entry.path, entry.name);
+  }
+
+  function beginTabRename(path: string) {
+    if (busy || notebookToolLockedRef.current) return;
+    const state = kernelClient.current?.currentState;
+    if (state === "busy" || state === "starting") {
+      setNotice("Interrupt the running cell before renaming a notebook.");
+      return;
+    }
+    setRenamingTabPath(path);
+    setRenamingTabName(basename(path));
+  }
+
+  async function commitTabRename(path: string, value: string) {
+    setRenamingTabPath(null);
+    setRenamingTabName("");
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const requested = trimmed.toLowerCase().endsWith(".ipynb")
+      ? trimmed
+      : `${trimmed}.ipynb`;
+    if (requested.toLowerCase() === ".ipynb") {
+      setNotice("A notebook name is required.");
+      return;
+    }
+    await renamePath(path, basename(path), requested);
   }
 
   async function deleteContent(entry: ContentEntry) {
@@ -801,10 +897,90 @@ export default function App() {
     URL.revokeObjectURL(href);
   }
 
+  function paneMaximum(side: PaneSide): number {
+    const otherSelector = side === "left" ? ".codex-panel" : ".file-panel";
+    const otherIsOpen = side === "left" ? rightOpen : leftOpen;
+    const otherWidth = otherIsOpen
+      ? document.querySelector<HTMLElement>(otherSelector)?.getBoundingClientRect().width ?? 0
+      : 0;
+    const hardMaximum = side === "left" ? LEFT_PANE_MAX : RIGHT_PANE_MAX;
+    const minimum = side === "left" ? LEFT_PANE_MIN : RIGHT_PANE_MIN;
+    return Math.max(
+      minimum,
+      Math.min(hardMaximum, window.innerWidth - otherWidth - MIN_NOTEBOOK_WIDTH),
+    );
+  }
+
+  function applyPaneWidth(side: PaneSide, value: number, persist: boolean): number {
+    const minimum = side === "left" ? LEFT_PANE_MIN : RIGHT_PANE_MIN;
+    const next = Math.round(clamp(value, minimum, paneMaximum(side)));
+    if (side === "left") {
+      setLeftPaneWidth(next);
+      if (persist) storePaneWidth(LEFT_PANE_STORAGE, next);
+    } else {
+      setRightPaneWidth(next);
+      if (persist) storePaneWidth(RIGHT_PANE_STORAGE, next);
+    }
+    return next;
+  }
+
+  function startPaneResize(side: PaneSide, event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const panelSelector = side === "left" ? ".file-panel" : ".codex-panel";
+    const renderedWidth = document.querySelector<HTMLElement>(panelSelector)
+      ?.getBoundingClientRect().width;
+    const startWidth = renderedWidth ?? (side === "left" ? leftPaneWidth : rightPaneWidth);
+    let latestWidth = startWidth;
+    document.body.classList.add("is-resizing-pane");
+
+    function move(pointerEvent: PointerEvent) {
+      const delta = side === "left"
+        ? pointerEvent.clientX - startX
+        : startX - pointerEvent.clientX;
+      latestWidth = applyPaneWidth(side, startWidth + delta, false);
+    }
+
+    function finish() {
+      document.body.classList.remove("is-resizing-pane");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      storePaneWidth(side === "left" ? LEFT_PANE_STORAGE : RIGHT_PANE_STORAGE, latestWidth);
+    }
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  }
+
+  function resizePaneWithKeyboard(side: PaneSide, event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const panelSelector = side === "left" ? ".file-panel" : ".codex-panel";
+    const renderedWidth = document.querySelector<HTMLElement>(panelSelector)
+      ?.getBoundingClientRect().width;
+    const current = renderedWidth ?? (side === "left" ? leftPaneWidth : rightPaneWidth);
+    const physicalDelta = event.key === "ArrowRight" ? 16 : -16;
+    applyPaneWidth(side, current + (side === "left" ? physicalDelta : -physicalDelta), true);
+  }
+
+  function resetPaneWidth(side: PaneSide) {
+    applyPaneWidth(side, side === "left" ? LEFT_PANE_DEFAULT : RIGHT_PANE_DEFAULT, true);
+  }
+
   const workspaceName = status ? basename(status.config.workspace) : "workspace";
   const environmentName = status ? basename(status.config.venv) : ".venv";
+  const appShellStyle = {
+    "--left-pane-width": `${leftPaneWidth}px`,
+    "--right-pane-width": `${rightPaneWidth}px`,
+  } as CSSProperties;
   return (
-    <div className={`app-shell ${leftOpen ? "has-left" : ""} ${rightOpen ? "has-right" : ""}`}>
+    <div
+      className={`app-shell ${leftOpen ? "has-left" : ""} ${rightOpen ? "has-right" : ""}`}
+      style={appShellStyle}
+    >
       <header className="titlebar">
         <div className="brand"><i><span>Z</span></i><span>zbook</span></div>
         <div className="title-actions">
@@ -838,6 +1014,22 @@ export default function App() {
           onEnvironment={() => setEnvironmentOpen(true)}
         />
       )}
+      {leftOpen && (
+        <div
+          className="pane-resizer pane-resizer-left"
+          role="separator"
+          aria-label="Resize workspace pane"
+          aria-orientation="vertical"
+          aria-valuemin={LEFT_PANE_MIN}
+          aria-valuemax={LEFT_PANE_MAX}
+          aria-valuenow={leftPaneWidth}
+          tabIndex={0}
+          title="Drag to resize workspace · double-click to reset"
+          onPointerDown={(event) => startPaneResize("left", event)}
+          onKeyDown={(event) => resizePaneWithKeyboard("left", event)}
+          onDoubleClick={() => resetPaneWidth("left")}
+        />
+      )}
       <section className="notebook-area">
         <div className="tabbar" role="tablist" aria-label="Open notebooks">
           <div className="tab-strip">
@@ -848,20 +1040,63 @@ export default function App() {
                   className={`notebook-tab ${active ? "is-active" : ""}`}
                   key={path}
                   ref={active ? activeTabRef : undefined}
+                  onDoubleClick={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.closest(".tab-close, .tab-rename-input")) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    beginTabRename(path);
+                  }}
                 >
-                  <button
-                    className="tab-select"
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    title={path}
-                    disabled={busy || notebookToolLocked || kernelState === "busy" || kernelState === "starting"}
-                    onClick={() => void openNotebook(path)}
-                  >
-                    <span className="notebook-icon">▦</span>
-                    <span className="tab-label">{basename(path)}</span>
-                    <i className={active && saveState !== "saved" ? "is-dirty" : ""} />
-                  </button>
+                  {renamingTabPath === path ? (
+                    <div className="tab-rename-editor" role="tab" aria-selected={active}>
+                      <span className="notebook-icon">▦</span>
+                      <input
+                        className="tab-rename-input"
+                        value={renamingTabName}
+                        autoFocus
+                        aria-label={`Rename ${basename(path)}`}
+                        title="Enter to rename · Escape to cancel"
+                        onFocus={(event) => {
+                          const extensionStart = event.currentTarget.value.toLowerCase().endsWith(".ipynb")
+                            ? event.currentTarget.value.length - 6
+                            : event.currentTarget.value.length;
+                          event.currentTarget.setSelectionRange(0, extensionStart);
+                        }}
+                        onChange={(event) => setRenamingTabName(event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onBlur={() => setRenamingTabPath((current) => current === path ? null : current)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void commitTabRename(path, event.currentTarget.value);
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setRenamingTabPath(null);
+                            setRenamingTabName("");
+                          }
+                        }}
+                      />
+                      <i className={active && saveState !== "saved" ? "is-dirty" : ""} />
+                    </div>
+                  ) : (
+                    <button
+                      className="tab-select"
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      title={`${path} · double-click to rename`}
+                      disabled={busy || notebookToolLocked || kernelState === "busy" || kernelState === "starting"}
+                      onClick={() => void openNotebook(path)}
+                    >
+                      <span className="notebook-icon">▦</span>
+                      <span className="tab-label">{basename(path)}</span>
+                      <i className={active && saveState !== "saved" ? "is-dirty" : ""} />
+                    </button>
+                  )}
                   <button
                     className="tab-close"
                     type="button"
@@ -917,6 +1152,22 @@ export default function App() {
           </main>
         )}
       </section>
+      {rightOpen && (
+        <div
+          className="pane-resizer pane-resizer-right"
+          role="separator"
+          aria-label="Resize Codex pane"
+          aria-orientation="vertical"
+          aria-valuemin={RIGHT_PANE_MIN}
+          aria-valuemax={RIGHT_PANE_MAX}
+          aria-valuenow={rightPaneWidth}
+          tabIndex={0}
+          title="Drag to resize Codex · double-click to reset"
+          onPointerDown={(event) => startPaneResize("right", event)}
+          onKeyDown={(event) => resizePaneWithKeyboard("right", event)}
+          onDoubleClick={() => resetPaneWidth("right")}
+        />
+      )}
       {rightOpen && (
         <CodexPanel
           available={status ? Boolean(status.tools.codex) : null}
