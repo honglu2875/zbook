@@ -68,25 +68,42 @@ npm run build
 
 The Vite build is emitted into `src/zbook/static/`, where the Python application serves it.
 
-## Launch
+## Install and launch
 
-Build once, then point the application at the directory that should be visible in the file tree:
+Build the web client once, then install the local package as a uv tool:
 
 ```bash
 uv sync --dev
 cd frontend && npm install && npm run build && cd ..
-uv run zbook --ZbookApp.workspace=/absolute/path/to/workspace
+uv tool install .
 ```
 
-The default kernel environment is a disposable uv venv under `/tmp`. To start with a persistent environment instead, pass either its path or a project folder containing `.venv`:
+The installed command has a small preflight check and a dedicated launch command:
 
 ```bash
-uv run zbook \
-  --ZbookApp.workspace=/absolute/path/to/workspace \
+zbook check
+zbook run
+zbook run --workspace-dir /absolute/path/to/workspace
+```
+
+`zbook run` uses the current directory as its workspace. The default kernel environment is a disposable uv venv under `/tmp`; a persistent uv environment can be selected from the environment panel while the app is running.
+
+Jupyter Server options go after a `--` passthrough boundary:
+
+```bash
+zbook run --workspace-dir /absolute/path/to/workspace -- \
+  --ServerApp.port=8890 \
+  --ServerApp.open_browser=False
+```
+
+Startup environment traits can be passed the same way when needed:
+
+```bash
+zbook run --workspace-dir /absolute/path/to/workspace -- \
   --ZbookApp.venv=/absolute/path/to/project/.venv
 ```
 
-The same choice can be changed from the environment panel while the app is running. A manually selected environment must be a uv-created virtual environment.
+For compatibility, Jupyter flags supplied without `--` are still forwarded, but Zbook prints a highlighted warning showing the preferred form. The old direct form (`zbook --ZbookApp.workspace=…`) also remains available with a migration warning. During development, prefix these commands with `uv run`, such as `uv run zbook check`.
 
 ## Notebook key model
 

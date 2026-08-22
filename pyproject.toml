@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-zbook = "zbook.app:main"
+zbook = "zbook.cli:main"
 
 [dependency-groups]
 dev = [
