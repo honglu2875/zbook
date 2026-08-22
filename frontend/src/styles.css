@@ -395,7 +395,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .notebook-cell.is-codex-locked .cell-editor::after { cursor: not-allowed; }
 .notebook-cell.is-editing::before { border-color: #5a5142; background: #1c1f21; box-shadow: 0 4px 16px #0003; }
 .notebook-cell.is-codex-changed { box-shadow: inset 0 0 0 1px #8c724743; }
-.cell-rail { position: absolute; z-index: 2; top: 1px; bottom: 1px; left: 56px; width: 3px; border-radius: 4px 0 0 4px; background: transparent; cursor: default; }
+.cell-rail { position: absolute; z-index: 2; top: 7px; bottom: 7px; left: 57px; width: 3px; border-radius: 999px; background: transparent; cursor: default; }
 .notebook-cell.is-selected .cell-rail { background: #78684f; }
 .notebook-cell.is-editing .cell-rail { background: var(--accent); }
 .notebook-cell.has-limited-output .cell-rail { background: #9a7b49; box-shadow: 2px 0 0 #9a7b4918; }
@@ -767,7 +767,7 @@ body.is-resizing-pane .app-shell { transition: none; }
   .codex-edit-review { margin-left: 39px; }
   .notebook-cell { grid-template-columns: 39px minmax(0, 1fr); }
   .notebook-cell::before { left: 39px; }
-  .cell-rail { left: 37px; }
+  .cell-rail { left: 38px; }
   .cell-title-bar { grid-template-columns: 39px minmax(0, 1fr) auto; }
   .cell-insert-controls { width: calc(100% - 39px); margin-left: 39px; }
   .cell-gutter { padding-left: 5px; }
