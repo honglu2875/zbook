@@ -11,7 +11,12 @@ import { CommandPalette, type PaletteCommand, type PaletteFile } from "./compone
 import { EnvironmentPanel } from "./components/EnvironmentPanel";
 import { FileTree } from "./components/FileTree";
 import { BranchIcon, CloseIcon, PanelIcon, PlayIcon, PlusIcon, SearchIcon, StopIcon } from "./components/icons";
-import { Notebook, type SaveState } from "./components/Notebook";
+import {
+  Notebook,
+  type CellViewOption,
+  type CellViewState,
+  type SaveState,
+} from "./components/Notebook";
 import {
   cellsFromNotebook,
   newCell,
@@ -73,6 +78,7 @@ interface WorkspaceSession {
   leftOpen: boolean;
   rightOpen: boolean;
   vimEnabled: boolean;
+  cellViewsByNotebook: Record<string, Record<string, CellViewState>>;
 }
 
 interface CodexEditReview {
@@ -136,6 +142,26 @@ function workspaceSessionKey(workspace: string): string {
   return `zbook.workspace.session.v${WORKSPACE_SESSION_VERSION}:${workspace}`;
 }
 
+function storedCellViews(value: unknown): Record<string, Record<string, CellViewState>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const notebooks: Record<string, Record<string, CellViewState>> = {};
+  for (const [notebookPath, cellValue] of Object.entries(value)) {
+    if (!cellValue || typeof cellValue !== "object" || Array.isArray(cellValue)) continue;
+    const cells: Record<string, CellViewState> = {};
+    for (const [cellId, viewValue] of Object.entries(cellValue)) {
+      if (!viewValue || typeof viewValue !== "object" || Array.isArray(viewValue)) continue;
+      const record = viewValue as Record<string, unknown>;
+      const view: CellViewState = {};
+      if (record.scrollLimited === true) view.scrollLimited = true;
+      if (record.sourceCollapsed === true) view.sourceCollapsed = true;
+      if (record.outputCollapsed === true) view.outputCollapsed = true;
+      if (Object.keys(view).length) cells[cellId] = view;
+    }
+    if (Object.keys(cells).length) notebooks[notebookPath] = cells;
+  }
+  return notebooks;
+}
+
 function loadWorkspaceSession(workspace: string): WorkspaceSession {
   const fallback: WorkspaceSession = {
     openTabs: [],
@@ -145,6 +171,7 @@ function loadWorkspaceSession(workspace: string): WorkspaceSession {
     leftOpen: true,
     rightOpen: true,
     vimEnabled: true,
+    cellViewsByNotebook: {},
   };
   try {
     const parsed = JSON.parse(window.localStorage.getItem(workspaceSessionKey(workspace)) ?? "null") as Record<string, unknown> | null;
@@ -169,6 +196,7 @@ function loadWorkspaceSession(workspace: string): WorkspaceSession {
       leftOpen: typeof parsed.leftOpen === "boolean" ? parsed.leftOpen : true,
       rightOpen: typeof parsed.rightOpen === "boolean" ? parsed.rightOpen : true,
       vimEnabled: typeof parsed.vimEnabled === "boolean" ? parsed.vimEnabled : true,
+      cellViewsByNotebook: storedCellViews(parsed.cellViewsByNotebook),
     };
   } catch {
     return fallback;
@@ -218,6 +246,7 @@ export default function App() {
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
   const [paletteFiles, setPaletteFiles] = useState<PaletteFile[]>([]);
   const [paletteLoading, setPaletteLoading] = useState(false);
+  const [cellViewsByNotebook, setCellViewsByNotebook] = useState<Record<string, Record<string, CellViewState>>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const revision = useRef(0);
   const savedRevision = useRef(0);
@@ -254,6 +283,7 @@ export default function App() {
     setLeftOpen(session.leftOpen);
     setRightOpen(session.rightOpen);
     setVimEnabled(session.vimEnabled);
+    setCellViewsByNotebook(session.cellViewsByNotebook);
     let cancelled = false;
     void (async () => {
       const candidates = [session.activePath, ...session.openTabs]
@@ -290,13 +320,14 @@ export default function App() {
       leftOpen,
       rightOpen,
       vimEnabled,
+      cellViewsByNotebook,
     };
     try {
       window.localStorage.setItem(workspaceSessionKey(workspace), JSON.stringify(session));
     } catch {
       // Session restoration is optional when browser storage is unavailable.
     }
-  }, [leftOpen, notebookPath, openTabs, rightOpen, selectedId, status?.config.workspace, treeDirectory, vimEnabled, workspaceSessionReady]);
+  }, [cellViewsByNotebook, leftOpen, notebookPath, openTabs, rightOpen, selectedId, status?.config.workspace, treeDirectory, vimEnabled, workspaceSessionReady]);
 
   useEffect(() => () => {
     void kernelClient.current?.shutdown();
@@ -902,6 +933,12 @@ export default function App() {
           cellId,
         ]),
       );
+      setCellViewsByNotebook((current) => Object.fromEntries(
+        Object.entries(current).map(([path, views]) => [
+          isSameOrChild(path, entryPath) ? `${newPath}${path.slice(entryPath.length)}` : path,
+          views,
+        ]),
+      ));
       if (treeDirectory === entryPath || treeDirectory.startsWith(`${entryPath}/`)) {
         setTreeDirectory(`${newPath}${treeDirectory.slice(entryPath.length)}`);
       }
@@ -962,6 +999,9 @@ export default function App() {
         Object.entries(selectedByNotebook.current)
           .filter(([path]) => !isSameOrChild(path, entry.path)),
       );
+      setCellViewsByNotebook((current) => Object.fromEntries(
+        Object.entries(current).filter(([path]) => !isSameOrChild(path, entry.path)),
+      ));
       setOpenTabs(remainingTabs);
       if (containsActive) {
         resetNotebookDocument();
@@ -990,6 +1030,29 @@ export default function App() {
     setSelectedId(id);
   }
 
+  function toggleCellView(id: string, option: CellViewOption) {
+    if (!notebookPath) return;
+    const path = notebookPath;
+    const isEnabled = Boolean(cellViewsByNotebook[path]?.[id]?.[option]);
+    if (option === "sourceCollapsed" && !isEnabled) {
+      setEditingId(null);
+      setMode("NAV");
+    }
+    selectCell(id);
+    setCellViewsByNotebook((current) => {
+      const notebookViews = { ...(current[path] ?? {}) };
+      const nextView = { ...(notebookViews[id] ?? {}) };
+      if (nextView[option]) delete nextView[option];
+      else nextView[option] = true;
+      if (Object.keys(nextView).length) notebookViews[id] = nextView;
+      else delete notebookViews[id];
+      const next = { ...current };
+      if (Object.keys(notebookViews).length) next[path] = notebookViews;
+      else delete next[path];
+      return next;
+    });
+  }
+
   function changeCellKind(id: string, kind: CellKind) {
     if (notebookToolLockedRef.current) return;
     updateCells((current) => current.map((cell) => cell.id === id ? {
@@ -1012,6 +1075,17 @@ export default function App() {
     setSelectedId(remaining[0]?.id ?? replacement!.id);
     setEditingId(null);
     setMode("NAV");
+    if (notebookPath) {
+      const path = notebookPath;
+      setCellViewsByNotebook((current) => {
+        const notebookViews = { ...(current[path] ?? {}) };
+        delete notebookViews[id];
+        const next = { ...current };
+        if (Object.keys(notebookViews).length) next[path] = notebookViews;
+        else delete next[path];
+        return next;
+      });
+    }
   }
 
   function insertAfter(id: string, kind: CellKind) {
@@ -1504,6 +1578,7 @@ export default function App() {
               && codexEditReview.afterRevision === revision.current
               && !notebookToolLocked
             )}
+            cellViews={cellViewsByNotebook[notebookPath] ?? {}}
             onSelect={selectCell}
             onEdit={(id) => {
               if (notebookToolLockedRef.current) return;
@@ -1518,6 +1593,7 @@ export default function App() {
             onAddAfter={insertAfter}
             onReviewCodexChange={reviewCodexEdit}
             onUndoCodexChange={() => void undoCodexEdit()}
+            onToggleCellView={toggleCellView}
             onSave={() => void persistNotebook()}
             onExport={exportNotebook}
             onReload={() => void reloadNotebook()}

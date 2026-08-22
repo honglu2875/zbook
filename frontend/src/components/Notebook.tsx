@@ -1,9 +1,25 @@
 import ReactMarkdown from "react-markdown";
 import type { CellKind, NotebookCell } from "../model/notebook";
 import { CellEditor } from "./CellEditor";
-import { DownloadIcon, PlayIcon, RefreshIcon, SaveIcon, TrashIcon } from "./icons";
+import {
+  ChevronIcon,
+  CodeIcon,
+  DownloadIcon,
+  HeightIcon,
+  OutputIcon,
+  PlayIcon,
+  RefreshIcon,
+  SaveIcon,
+  TrashIcon,
+} from "./icons";
 
 export type SaveState = "saved" | "dirty" | "saving" | "error";
+export interface CellViewState {
+  scrollLimited?: boolean;
+  sourceCollapsed?: boolean;
+  outputCollapsed?: boolean;
+}
+export type CellViewOption = keyof CellViewState;
 
 interface NotebookProps {
   path: string;
@@ -16,6 +32,7 @@ interface NotebookProps {
   locked: boolean;
   codexChangedCellIds: string[];
   codexUndoAvailable: boolean;
+  cellViews: Record<string, CellViewState>;
   onSelect: (id: string) => void;
   onEdit: (id: string) => void;
   onChange: (id: string, source: string) => void;
@@ -25,6 +42,7 @@ interface NotebookProps {
   onAddAfter: (id: string, kind: CellKind) => void;
   onReviewCodexChange: () => void;
   onUndoCodexChange: () => void;
+  onToggleCellView: (id: string, option: CellViewOption) => void;
   onSave: () => void;
   onExport: () => void;
   onReload: () => void;
@@ -67,6 +85,7 @@ export function Notebook({
   locked,
   codexChangedCellIds,
   codexUndoAvailable,
+  cellViews,
   onSelect,
   onEdit,
   onChange,
@@ -76,6 +95,7 @@ export function Notebook({
   onAddAfter,
   onReviewCodexChange,
   onUndoCodexChange,
+  onToggleCellView,
   onSave,
   onExport,
   onReload,
@@ -116,19 +136,40 @@ export function Notebook({
           const selected = selectedId === cell.id;
           const editing = editingId === cell.id;
           const changedByCodex = codexChangedCellIds.includes(cell.id);
+          const view = cellViews[cell.id] ?? {};
+          const sourceLineCount = cell.source
+            ? cell.source.replace(/\n$/, "").split("\n").length
+            : 0;
+          const sourceLabel = cell.kind === "markdown" ? "Markdown" : cell.kind === "raw" ? "Raw source" : "Code";
           return (
             <div className="notebook-cell-group" key={cell.id}>
             <article
               data-cell-id={cell.id}
-              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${locked ? "is-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""}`}
+              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${locked ? "is-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.scrollLimited ? "is-scroll-limited" : ""} ${view.sourceCollapsed ? "has-collapsed-source" : ""} ${view.outputCollapsed ? "has-collapsed-output" : ""}`}
               tabIndex={0}
               onFocus={() => onSelect(cell.id)}
               onClick={() => onSelect(cell.id)}
               onDoubleClick={() => onEdit(cell.id)}
               aria-label={`${cell.kind} cell`}
             >
-              <div className="cell-rail" />
-              <div className="cell-gutter">
+              <div
+                className="cell-rail"
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onToggleCellView(cell.id, "scrollLimited");
+                }}
+              />
+              <div
+                className="cell-gutter"
+                title={view.scrollLimited ? "Double-click to show the full cell" : "Double-click to limit cell height and scroll"}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  if ((event.target as HTMLElement).closest("button")) return;
+                  event.preventDefault();
+                  onToggleCellView(cell.id, "scrollLimited");
+                }}
+              >
                 {cell.kind === "code" ? (
                   <>
                     <button
@@ -145,9 +186,36 @@ export function Notebook({
                     </span>
                   </>
                 ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>}
+                {view.scrollLimited && <span className="cell-scroll-state" aria-hidden="true">↕</span>}
               </div>
               <div className="cell-body">
-                <div className="cell-actions">
+                <div className="cell-actions" onDoubleClick={(event) => event.stopPropagation()}>
+                  <button
+                    className={view.scrollLimited ? "is-active" : ""}
+                    disabled={locked}
+                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "scrollLimited"); }}
+                    aria-label={view.scrollLimited ? "Show full cell height" : "Limit cell height with scrolling"}
+                    aria-pressed={Boolean(view.scrollLimited)}
+                    title={view.scrollLimited ? "Show full cell height" : "Limit cell height with scrolling"}
+                  ><HeightIcon /></button>
+                  <button
+                    className={view.sourceCollapsed ? "is-active" : ""}
+                    disabled={locked}
+                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "sourceCollapsed"); }}
+                    aria-label={view.sourceCollapsed ? `Show ${sourceLabel.toLowerCase()}` : `Collapse ${sourceLabel.toLowerCase()}`}
+                    aria-pressed={Boolean(view.sourceCollapsed)}
+                    title={view.sourceCollapsed ? `Show ${sourceLabel.toLowerCase()}` : `Collapse ${sourceLabel.toLowerCase()}`}
+                  ><CodeIcon /></button>
+                  {cell.outputs.length > 0 && (
+                    <button
+                      className={view.outputCollapsed ? "is-active" : ""}
+                      disabled={locked}
+                      onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "outputCollapsed"); }}
+                      aria-label={view.outputCollapsed ? "Show cell output" : "Collapse cell output"}
+                      aria-pressed={Boolean(view.outputCollapsed)}
+                      title={view.outputCollapsed ? "Show cell output" : "Collapse cell output"}
+                    ><OutputIcon /></button>
+                  )}
                   <select
                     value={cell.kind}
                     disabled={locked}
@@ -159,33 +227,59 @@ export function Notebook({
                     <option value="markdown">Markdown</option>
                     <option value="raw">Raw</option>
                   </select>
-                  <button disabled={locked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
+                  <button className="cell-delete" disabled={locked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
                 </div>
-                {cell.kind === "markdown" && !editing ? (
-                  <div className="markdown-rendered" onClick={() => onEdit(cell.id)}>
-                    <ReactMarkdown>{cell.source}</ReactMarkdown>
-                  </div>
+                {view.sourceCollapsed ? (
+                  <button
+                    type="button"
+                    className="cell-collapsed-summary source-collapsed-summary"
+                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "sourceCollapsed"); }}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    disabled={locked}
+                    title={`Show ${sourceLabel.toLowerCase()}`}
+                  >
+                    <CodeIcon /><strong>{sourceLabel} hidden</strong><span>{sourceLineCount} line{sourceLineCount === 1 ? "" : "s"}</span><ChevronIcon />
+                  </button>
                 ) : (
-                  <CellEditor
-                    kind={cell.kind}
-                    source={cell.source}
-                    vimEnabled={vimEnabled}
-                    readOnly={locked}
-                    onChange={(source) => onChange(cell.id, source)}
-                    onRun={(advance, insert) => onRun(cell.id, advance, insert)}
-                    onModeChange={(nextMode) => {
-                      onModeChange(nextMode);
-                      if (nextMode === "NAV") onStopEdit(cell.id);
-                    }}
-                  />
+                  <div className="cell-source">
+                    {cell.kind === "markdown" && !editing ? (
+                      <div className="markdown-rendered" onClick={() => onEdit(cell.id)}>
+                        <ReactMarkdown>{cell.source}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <CellEditor
+                        kind={cell.kind}
+                        source={cell.source}
+                        vimEnabled={vimEnabled}
+                        readOnly={locked}
+                        onChange={(source) => onChange(cell.id, source)}
+                        onRun={(advance, insert) => onRun(cell.id, advance, insert)}
+                        onModeChange={(nextMode) => {
+                          onModeChange(nextMode);
+                          if (nextMode === "NAV") onStopEdit(cell.id);
+                        }}
+                      />
+                    )}
+                  </div>
                 )}
-                {cell.outputs.length > 0 && (
+                {cell.outputs.length > 0 && (view.outputCollapsed ? (
+                  <button
+                    type="button"
+                    className="cell-collapsed-summary output-collapsed-summary"
+                    onClick={(event) => { event.stopPropagation(); onToggleCellView(cell.id, "outputCollapsed"); }}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    disabled={locked}
+                    title="Show cell output"
+                  >
+                    <OutputIcon /><strong>Output hidden</strong><span>{cell.outputs.length} item{cell.outputs.length === 1 ? "" : "s"}</span><ChevronIcon />
+                  </button>
+                ) : (
                   <div className="cell-output">
                     {cell.outputs.map((output, index) => (
                       <RichOutput key={`${cell.id}-${index}`} cellId={cell.id} index={index} {...output} />
                     ))}
                   </div>
-                )}
+                ))}
               </div>
             </article>
             <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>

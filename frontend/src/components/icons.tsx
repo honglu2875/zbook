@@ -67,3 +67,12 @@ export const HistoryIcon = (props: IconProps) => (
 export const SearchIcon = (props: IconProps) => (
   <Icon {...props}><circle cx="6.75" cy="6.75" r="4.5" /><path d="m10.25 10.25 3.5 3.5" /></Icon>
 );
+export const HeightIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M3 3h10M3 13h10M8 5v6M6.25 6.5 8 4.75 9.75 6.5M6.25 9.5 8 11.25 9.75 9.5" /></Icon>
+);
+export const CodeIcon = (props: IconProps) => (
+  <Icon {...props}><path d="m5.5 3.5-4 4.5 4 4.5M10.5 3.5l4 4.5-4 4.5M9 2.5l-2 11" /></Icon>
+);
+export const OutputIcon = (props: IconProps) => (
+  <Icon {...props}><rect x="2" y="2.5" width="12" height="11" rx="1" /><path d="M4.5 6h7M4.5 9h4.5" /></Icon>
+);
