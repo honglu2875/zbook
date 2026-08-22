@@ -13,6 +13,7 @@ interface NotebookProps {
   vimEnabled: boolean;
   saveState: SaveState;
   canRun: boolean;
+  locked: boolean;
   onSelect: (id: string) => void;
   onEdit: (id: string) => void;
   onChange: (id: string, source: string) => void;
@@ -59,6 +60,7 @@ export function Notebook({
   vimEnabled,
   saveState,
   canRun,
+  locked,
   onSelect,
   onEdit,
   onChange,
@@ -82,14 +84,14 @@ export function Notebook({
   }[saveState];
 
   return (
-    <main className="notebook-scroll">
+    <main className="notebook-scroll" aria-busy={locked}>
       <div className="notebook-canvas">
         <div className="notebook-title-row">
           <div className="notebook-title"><h1>{title}</h1><span>.ipynb</span></div>
           <div className="notebook-document-actions">
             <span className={`save-state save-${saveState}`}>{saveLabel}</span>
-            <button onClick={onSave} disabled={saveState === "saving"} title="Save notebook (Ctrl/Cmd-S)"><SaveIcon />Save</button>
-            <button onClick={onReload} disabled={saveState === "saving"} title="Reload notebook from disk"><RefreshIcon />Reload</button>
+            <button onClick={onSave} disabled={saveState === "saving" || locked} title="Save notebook (Ctrl/Cmd-S)"><SaveIcon />Save</button>
+            <button onClick={onReload} disabled={saveState === "saving" || locked} title="Reload notebook from disk"><RefreshIcon />Reload</button>
             <button onClick={onExport} title="Export .ipynb"><DownloadIcon />Export</button>
           </div>
         </div>
@@ -99,7 +101,7 @@ export function Notebook({
           return (
             <article
               key={cell.id}
-              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""}`}
+              className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${locked ? "is-locked" : ""}`}
               tabIndex={0}
               onFocus={() => onSelect(cell.id)}
               onClick={() => onSelect(cell.id)}
@@ -112,7 +114,7 @@ export function Notebook({
                   <>
                     <button
                       className="run-button"
-                      disabled={!canRun || cell.state === "running"}
+                      disabled={locked || !canRun || cell.state === "running"}
                       onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
                       aria-label="Run cell"
                       title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
@@ -129,6 +131,7 @@ export function Notebook({
                 <div className="cell-actions">
                   <select
                     value={cell.kind}
+                    disabled={locked}
                     onChange={(event) => onChangeKind(cell.id, event.target.value as CellKind)}
                     onClick={(event) => event.stopPropagation()}
                     aria-label="Cell type"
@@ -137,7 +140,7 @@ export function Notebook({
                     <option value="markdown">Markdown</option>
                     <option value="raw">Raw</option>
                   </select>
-                  <button onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
+                  <button disabled={locked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
                 </div>
                 {cell.kind === "markdown" && !editing ? (
                   <div className="markdown-rendered" onClick={() => onEdit(cell.id)}>
@@ -148,6 +151,7 @@ export function Notebook({
                     kind={cell.kind}
                     source={cell.source}
                     vimEnabled={vimEnabled}
+                    readOnly={locked}
                     onChange={(source) => onChange(cell.id, source)}
                     onRun={(advance, insert) => onRun(cell.id, advance, insert)}
                     onModeChange={(nextMode) => {
@@ -168,8 +172,8 @@ export function Notebook({
           );
         })}
         <div className="add-cell-controls">
-          <button onClick={() => onAdd("code")}><span>+</span> Code</button>
-          <button onClick={() => onAdd("markdown")}><span>+</span> Markdown</button>
+          <button disabled={locked} onClick={() => onAdd("code")}><span>+</span> Code</button>
+          <button disabled={locked} onClick={() => onAdd("markdown")}><span>+</span> Markdown</button>
         </div>
         <div className="notebook-spacer" />
       </div>

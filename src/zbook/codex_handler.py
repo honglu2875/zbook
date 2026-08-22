@@ -19,6 +19,9 @@ _APPROVAL_METHODS = {
     "item/fileChange/requestApproval",
 }
 _APPROVAL_DECISIONS = {"accept", "acceptForSession", "decline", "cancel"}
+_NOTEBOOK_TOOL_METHOD = "item/tool/call"
+_NOTEBOOK_TOOLS = {"zbook_notebook_read", "zbook_notebook_apply"}
+_NOTEBOOK_TOOL_TIMEOUT = 45.0
 _PREFERRED_MODEL = "gpt-5.6-terra"
 _PREFERRED_EFFORT = "medium"
 
@@ -79,6 +82,19 @@ def prompt_with_context(prompt: str, context: Any) -> str:
     return f"{value}\n\nZbook context supplied by the user:\n" + "\n\n".join(details)
 
 
+def dynamic_tool_response(success: bool, result: Any) -> dict[str, Any]:
+    """Encode the exact DynamicToolCallResponse shape expected by App Server."""
+    return {
+        "success": success,
+        "contentItems": [
+            {
+                "type": "inputText",
+                "text": json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+            }
+        ],
+    }
+
+
 class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
     """Expose one workspace-scoped Codex conversation to the local web client."""
 
@@ -88,6 +104,8 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
     turn_id: str | None = None
     event_task: asyncio.Task[None] | None = None
     approval_ids: set[int | str]
+    notebook_tool_ids: set[int | str]
+    notebook_tool_timeouts: dict[int | str, asyncio.Task[None]]
     models: list[dict[str, Any]]
     selected_model: str | None = None
     selected_effort: str | None = None
@@ -103,6 +121,8 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
     async def open(self) -> None:
         super().open()
         self.approval_ids = set()
+        self.notebook_tool_ids = set()
+        self.notebook_tool_timeouts = {}
         self.models = []
         self.account_state = {"account": None, "requiresOpenaiAuth": True}
         self.selected_model = None
@@ -173,6 +193,15 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
             await self.codex.respond(request_id, {"decision": decision})
             self.approval_ids.discard(request_id)
             await self._send({"type": "approvalResolved", "requestId": request_id})
+            return
+        if message_type == "notebookToolResult":
+            request_id = message.get("requestId")
+            if request_id not in self.notebook_tool_ids:
+                raise ValueError("Unknown or expired notebook tool request")
+            success = message.get("success")
+            if not isinstance(success, bool):
+                raise ValueError("Notebook tool success must be a boolean")
+            await self._complete_notebook_tool(request_id, success, message.get("result"))
             return
         if message_type == "interrupt":
             if self.thread_id and self.turn_id:
@@ -307,10 +336,15 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
                 if event_thread and event_thread != self.thread_id:
                     continue
                 method = event.get("method")
+                if method == _NOTEBOOK_TOOL_METHOD:
+                    await self._forward_notebook_tool(event, params)
+                    continue
                 if method in _APPROVAL_METHODS and event.get("id") is not None:
                     self.approval_ids.add(event["id"])
                 if method == "serverRequest/resolved" and isinstance(params, dict):
-                    self.approval_ids.discard(params.get("requestId"))
+                    request_id = params.get("requestId")
+                    self.approval_ids.discard(request_id)
+                    self._forget_notebook_tool(request_id)
                 await self._send({"type": "codex", "message": event})
                 if method == "turn/completed":
                     self.turn_id = None
@@ -342,6 +376,75 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
                     }
                 )
 
+    async def _forward_notebook_tool(
+        self,
+        event: dict[str, Any],
+        params: Any,
+    ) -> None:
+        assert self.codex is not None
+        request_id = event.get("id")
+        if request_id is None or not isinstance(params, dict):
+            return
+        tool = params.get("tool")
+        if tool not in _NOTEBOOK_TOOLS:
+            await self.codex.respond(
+                request_id,
+                dynamic_tool_response(False, {"error": f"Unknown Zbook tool: {tool}"}),
+            )
+            return
+        self.notebook_tool_ids.add(request_id)
+        timeout = asyncio.create_task(self._expire_notebook_tool(request_id))
+        self.notebook_tool_timeouts[request_id] = timeout
+        await self._send(
+            {
+                "type": "notebookToolCall",
+                "requestId": request_id,
+                "callId": params.get("callId"),
+                "threadId": params.get("threadId"),
+                "turnId": params.get("turnId"),
+                "tool": tool,
+                "arguments": params.get("arguments"),
+            }
+        )
+
+    async def _complete_notebook_tool(
+        self,
+        request_id: int | str,
+        success: bool,
+        result: Any,
+    ) -> None:
+        assert self.codex is not None
+        if request_id not in self.notebook_tool_ids:
+            return
+        self.notebook_tool_ids.discard(request_id)
+        timeout = self.notebook_tool_timeouts.pop(request_id, None)
+        if timeout is not None and timeout is not asyncio.current_task():
+            timeout.cancel()
+        await self.codex.respond(request_id, dynamic_tool_response(success, result))
+
+    def _forget_notebook_tool(self, request_id: Any) -> None:
+        self.notebook_tool_ids.discard(request_id)
+        timeout = self.notebook_tool_timeouts.pop(request_id, None)
+        if timeout is not None:
+            timeout.cancel()
+
+    async def _expire_notebook_tool(self, request_id: int | str) -> None:
+        try:
+            await asyncio.sleep(_NOTEBOOK_TOOL_TIMEOUT)
+            await self._complete_notebook_tool(
+                request_id,
+                False,
+                {"error": "The Zbook browser did not answer the notebook tool call in time."},
+            )
+            await self._send(
+                {
+                    "type": "error",
+                    "message": "A Codex notebook edit timed out before the browser answered.",
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+
     async def _send(self, payload: dict[str, Any]) -> None:
         try:
             await self.write_message(json.dumps(payload))
@@ -356,9 +459,17 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
                 asyncio.create_task(self._interrupt(self.thread_id, self.turn_id))
             for request_id in getattr(self, "approval_ids", set()):
                 asyncio.create_task(self._decline(request_id))
+            pending_tools = list(getattr(self, "notebook_tool_ids", set()))
+            self.notebook_tool_ids.clear()
+            for request_id in pending_tools:
+                asyncio.create_task(self._fail_disconnected_tool(request_id))
+        for timeout in getattr(self, "notebook_tool_timeouts", {}).values():
+            timeout.cancel()
         self.thread_id = None
         self.turn_id = None
         self.approval_ids = set()
+        self.notebook_tool_ids = set()
+        self.notebook_tool_timeouts = {}
 
     async def _interrupt(self, thread_id: str, turn_id: str) -> None:
         assert self.codex is not None
@@ -369,3 +480,14 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
         assert self.codex is not None
         with contextlib.suppress(Exception):
             await self.codex.respond(request_id, {"decision": "decline"})
+
+    async def _fail_disconnected_tool(self, request_id: int | str) -> None:
+        assert self.codex is not None
+        with contextlib.suppress(Exception):
+            await self.codex.respond(
+                request_id,
+                dynamic_tool_response(
+                    False,
+                    {"error": "The Zbook browser disconnected during the notebook tool call."},
+                ),
+            )

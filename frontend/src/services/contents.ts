@@ -40,7 +40,11 @@ export async function readNotebook(path: string): Promise<ContentEntry> {
   const url = contentsUrl(path);
   url.searchParams.set("content", "1");
   url.searchParams.set("type", "notebook");
-  const model = await requestJson<ContentEntry>(url);
+  // Notebook contents can be changed by Codex or another process.  Both the
+  // query nonce and fetch policy are intentional: intermediary caches should
+  // never turn Reload into a no-op.
+  url.searchParams.set("_refresh", String(Date.now()));
+  const model = await requestJson<ContentEntry>(url, { cache: "no-store" });
   if (model.type !== "notebook" || !model.content || Array.isArray(model.content)) {
     throw new Error(`${path} is not a notebook`);
   }

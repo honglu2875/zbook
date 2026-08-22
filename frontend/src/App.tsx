@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CodexPanel } from "./components/CodexPanel";
 import { EnvironmentPanel } from "./components/EnvironmentPanel";
 import { FileTree } from "./components/FileTree";
-import { BranchIcon, PanelIcon, PlayIcon, PlusIcon, StopIcon } from "./components/icons";
+import { BranchIcon, CloseIcon, PanelIcon, PlayIcon, PlusIcon, StopIcon } from "./components/icons";
 import { Notebook, type SaveState } from "./components/Notebook";
 import {
   cellsFromNotebook,
@@ -12,6 +12,14 @@ import {
   type NotebookCell,
   type RawNotebook,
 } from "./model/notebook";
+import {
+  applyNotebookOperations,
+  NOTEBOOK_APPLY_TOOL,
+  NOTEBOOK_READ_TOOL,
+  NotebookToolInputError,
+  parseNotebookToolArguments,
+  type NotebookToolResponse,
+} from "./model/notebookTools";
 import {
   createDirectory,
   createNotebook,
@@ -67,6 +75,7 @@ export default function App() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
   const [notebookPath, setNotebookPath] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mode, setMode] = useState("NAV");
@@ -81,17 +90,22 @@ export default function App() {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [kernelState, setKernelState] = useState<KernelState>("disconnected");
   const [busy, setBusy] = useState(false);
+  const [notebookToolLocked, setNotebookToolLocked] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const revision = useRef(0);
   const savedRevision = useRef(0);
   const savePromise = useRef<Promise<boolean> | null>(null);
+  const notebookToolLockedRef = useRef(false);
   const directoriesRef = useRef(directories);
+  const openTabsRef = useRef(openTabs);
+  const activeTabRef = useRef<HTMLDivElement | null>(null);
   const directoryRequestVersions = useRef<Record<string, number>>({});
   const kernelClient = useRef<KernelClient | null>(null);
   if (kernelClient.current === null) kernelClient.current = new KernelClient(setKernelState);
   const documentRef = useRef({ cells, metadata, notebookPath, saveState });
   documentRef.current = { cells, metadata, notebookPath, saveState };
   directoriesRef.current = directories;
+  openTabsRef.current = openTabs;
 
   useEffect(() => {
     void refreshStatus();
@@ -144,6 +158,10 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [notebookPath, openTabs.length]);
+
   async function loadDirectory(path: string, refresh = false): Promise<boolean> {
     if (!refresh && directoriesRef.current[path] !== undefined) return true;
     const requestVersion = (directoryRequestVersions.current[path] ?? 0) + 1;
@@ -172,10 +190,21 @@ export default function App() {
     }
   }
 
-  async function refreshTree(showNotice = true) {
+  async function refreshTree(showNotice = true): Promise<boolean> {
     const paths = new Set(["", treeDirectory, ...Object.keys(directoriesRef.current)]);
     const results = await Promise.all([...paths].map((path) => loadDirectory(path, true)));
-    if (showNotice && results.every(Boolean)) setNotice("File tree refreshed.");
+    const refreshed = results.every(Boolean);
+    if (showNotice && refreshed) setNotice("File tree refreshed.");
+    return refreshed;
+  }
+
+  async function refreshWorkspace() {
+    const treeRefreshed = await refreshTree(false);
+    if (documentRef.current.notebookPath) {
+      await reloadNotebook();
+    } else if (treeRefreshed) {
+      setNotice("Workspace refreshed.");
+    }
   }
 
   function markDirty() {
@@ -198,11 +227,13 @@ export default function App() {
   }
 
   function updateCells(updater: (current: NotebookCell[]) => NotebookCell[]) {
+    if (notebookToolLockedRef.current) return;
     markDirty();
     setCells(updater);
   }
 
   async function persistNotebook(): Promise<boolean> {
+    if (notebookToolLockedRef.current) return false;
     if (savePromise.current) return savePromise.current;
     const current = documentRef.current;
     if (!current.notebookPath) return true;
@@ -249,6 +280,10 @@ export default function App() {
   }
 
   async function reloadNotebook(fromExternalChange = false) {
+    if (notebookToolLockedRef.current) {
+      setNotice("The notebook is temporarily locked while Codex applies a cell change.");
+      return;
+    }
     const path = documentRef.current.notebookPath;
     if (!path) return;
     if (!fromExternalChange && documentRef.current.saveState !== "saved") {
@@ -259,8 +294,8 @@ export default function App() {
       const model = await readNotebook(path);
       const notebook = model.content as RawNotebook;
       const loadedCells = cellsFromNotebook(notebook);
-      revision.current = 0;
-      savedRevision.current = 0;
+      revision.current += 1;
+      savedRevision.current = revision.current;
       setCells(loadedCells);
       setMetadata(notebook.metadata ?? {});
       setSelectedId(loadedCells[0].id);
@@ -284,17 +319,165 @@ export default function App() {
     }
   }
 
-  async function openNotebook(path: string) {
-    if (path === documentRef.current.notebookPath) return;
-    if (!(await ensureDocumentSaved())) return;
+  async function handleNotebookToolCall(
+    tool: string,
+    argumentsValue: unknown,
+  ): Promise<NotebookToolResponse> {
+    let args: Record<string, unknown>;
+    try {
+      args = parseNotebookToolArguments(argumentsValue);
+    } catch (error) {
+      return { success: false, result: { error: String(error) } };
+    }
+
+    const current = documentRef.current;
+    if (tool === NOTEBOOK_READ_TOOL) {
+      if (!current.notebookPath) {
+        return { success: false, result: { error: "No notebook is open in Zbook." } };
+      }
+      return {
+        success: true,
+        result: {
+          notebookPath: current.notebookPath,
+          documentRevision: revision.current,
+          selectedCellId: selectedId || null,
+          saveState: current.saveState,
+          cells: current.cells.map((cell, index) => ({
+            index,
+            id: cell.id,
+            cellType: cell.kind,
+            source: cell.source,
+            executionCount: cell.executionCount,
+          })),
+        },
+      };
+    }
+    if (tool !== NOTEBOOK_APPLY_TOOL) {
+      return { success: false, result: { error: `Unknown notebook tool: ${tool}` } };
+    }
+    if (!current.notebookPath) {
+      return { success: false, result: { error: "No notebook is open in Zbook." } };
+    }
+    if (notebookToolLockedRef.current) {
+      return { success: false, result: { error: "Another notebook tool call is still running." } };
+    }
+    if (kernelClient.current?.currentState === "busy" || kernelClient.current?.currentState === "starting") {
+      return { success: false, result: { error: "Wait for the running cell to finish before editing it." } };
+    }
+    if (typeof args.notebookPath !== "string" || args.notebookPath !== current.notebookPath) {
+      return {
+        success: false,
+        result: {
+          error: "notebook_not_active",
+          message: "The notebook tab changed. Read the active notebook again before editing.",
+          activeNotebookPath: current.notebookPath,
+        },
+      };
+    }
+    if (!Number.isInteger(args.expectedRevision) || args.expectedRevision !== revision.current) {
+      return {
+        success: false,
+        result: {
+          error: "revision_conflict",
+          message: "The notebook changed after it was read. Read it again before retrying.",
+          currentRevision: revision.current,
+        },
+      };
+    }
+
+    let applied;
+    try {
+      applied = applyNotebookOperations(current.cells, args.operations);
+    } catch (error) {
+      const message = error instanceof NotebookToolInputError ? error.message : String(error);
+      return { success: false, result: { error: "invalid_operations", message } };
+    }
+
+    notebookToolLockedRef.current = true;
+    setNotebookToolLocked(true);
+    setEditingId(null);
+    setMode("NAV");
+    try {
+      if (savePromise.current && !(await savePromise.current)) {
+        return { success: false, result: { error: "Could not finish saving the current notebook." } };
+      }
+      setSaveState("saving");
+      await saveNotebook(
+        current.notebookPath,
+        notebookFromCells(applied.cells, current.metadata),
+      );
+      const nextRevision = revision.current + 1;
+      revision.current = nextRevision;
+      savedRevision.current = nextRevision;
+      documentRef.current = {
+        cells: applied.cells,
+        metadata: current.metadata,
+        notebookPath: current.notebookPath,
+        saveState: "saved",
+      };
+      setCells(applied.cells);
+      setSaveState("saved");
+      const nextSelected = applied.insertedCellIds.at(-1)
+        ?? applied.affectedCellIds.find((id) => applied.cells.some((cell) => cell.id === id))
+        ?? (applied.cells.some((cell) => cell.id === selectedId) ? selectedId : applied.cells[0].id);
+      setSelectedId(nextSelected);
+      setNotice(`Codex updated ${applied.affectedCellIds.length} notebook cell${applied.affectedCellIds.length === 1 ? "" : "s"}.`);
+      return {
+        success: true,
+        result: {
+          notebookPath: current.notebookPath,
+          documentRevision: nextRevision,
+          affectedCellIds: applied.affectedCellIds,
+          insertedCellIds: applied.insertedCellIds,
+          cellCount: applied.cells.length,
+          saved: true,
+        },
+      };
+    } catch (error) {
+      setSaveState(current.saveState);
+      setNotice(`Codex notebook edit could not be saved: ${String(error)}`);
+      return { success: false, result: { error: "save_failed", message: String(error) } };
+    } finally {
+      notebookToolLockedRef.current = false;
+      setNotebookToolLocked(false);
+    }
+  }
+
+  function rememberOpenTab(path: string) {
+    setOpenTabs((current) => current.includes(path) ? current : [...current, path]);
+  }
+
+  function resetNotebookDocument() {
+    setNotebookPath(null);
+    setCells([]);
+    setMetadata({});
+    setSelectedId("");
+    setEditingId(null);
+    setMode("NAV");
+    setSaveState("saved");
+    revision.current += 1;
+    savedRevision.current = revision.current;
+  }
+
+  function notebookTransitionBlocked(): boolean {
+    if (notebookToolLockedRef.current) {
+      setNotice("Wait for the Codex cell change to finish before switching notebooks.");
+      return true;
+    }
+    const state = kernelClient.current?.currentState;
+    if (state !== "busy" && state !== "starting") return false;
+    setNotice("Interrupt the running cell before switching notebooks.");
+    return true;
+  }
+
+  async function loadNotebookDocument(path: string, rememberTab: boolean): Promise<boolean> {
     setBusy(true);
     try {
-      await kernelClient.current?.shutdown();
       const model = await readNotebook(path);
       const notebook = model.content as RawNotebook;
       const loadedCells = cellsFromNotebook(notebook);
-      revision.current = 0;
-      savedRevision.current = 0;
+      revision.current += 1;
+      savedRevision.current = revision.current;
       setNotebookPath(path);
       setTreeDirectory(parentPath(path));
       setCells(loadedCells);
@@ -303,15 +486,47 @@ export default function App() {
       setEditingId(loadedCells[0].kind === "markdown" ? null : loadedCells[0].id);
       setMode("NAV");
       setSaveState(notebook.cells.length === 0 ? "dirty" : "saved");
+      if (rememberTab) rememberOpenTab(path);
+      return true;
     } catch (error) {
       setNotice(`Could not open ${path}: ${String(error)}`);
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
+  async function openNotebook(path: string): Promise<boolean> {
+    if (path === documentRef.current.notebookPath) {
+      rememberOpenTab(path);
+      return true;
+    }
+    if (notebookTransitionBlocked()) return false;
+    if (!(await ensureDocumentSaved())) return false;
+    return loadNotebookDocument(path, true);
+  }
+
+  async function closeNotebookTab(path: string) {
+    const tabs = openTabsRef.current;
+    if (!tabs.includes(path)) return;
+    if (path !== documentRef.current.notebookPath) {
+      setOpenTabs(tabs.filter((tab) => tab !== path));
+      return;
+    }
+    if (notebookTransitionBlocked()) return;
+    if (!(await ensureDocumentSaved())) return;
+
+    const index = tabs.indexOf(path);
+    const remaining = tabs.filter((tab) => tab !== path);
+    const nextPath = remaining[Math.min(index, remaining.length - 1)] ?? null;
+    if (nextPath && !(await loadNotebookDocument(nextPath, false))) return;
+    if (!nextPath) resetNotebookDocument();
+    setOpenTabs(remaining);
+  }
+
   async function newNotebook() {
     const directory = treeDirectory;
+    if (notebookTransitionBlocked()) return;
     if (!(await ensureDocumentSaved())) return;
     setBusy(true);
     try {
@@ -388,10 +603,16 @@ export default function App() {
     const newPath = parent ? `${parent}/${requested}` : requested;
     const activePath = documentRef.current.notebookPath;
     const containsActive = Boolean(activePath && isSameOrChild(activePath, entry.path));
+    if (containsActive && notebookTransitionBlocked()) return;
     try {
       if (containsActive && !(await ensureDocumentSaved())) return;
       await renameEntry(entry.path, newPath);
       if (activePath && containsActive) setNotebookPath(`${newPath}${activePath.slice(entry.path.length)}`);
+      setOpenTabs((current) => [
+        ...new Set(current.map((path) => (
+          isSameOrChild(path, entry.path) ? `${newPath}${path.slice(entry.path.length)}` : path
+        ))),
+      ]);
       if (treeDirectory === entry.path || treeDirectory.startsWith(`${entry.path}/`)) {
         setTreeDirectory(`${newPath}${treeDirectory.slice(entry.path.length)}`);
       }
@@ -406,21 +627,20 @@ export default function App() {
     if (!window.confirm(`Delete ${entry.path}?`)) return;
     const activePath = documentRef.current.notebookPath;
     const containsActive = Boolean(activePath && isSameOrChild(activePath, entry.path));
+    if (containsActive && notebookTransitionBlocked()) return;
+    const tabs = openTabsRef.current;
+    const activeIndex = activePath ? tabs.indexOf(activePath) : -1;
+    const remainingTabs = tabs.filter((path) => !isSameOrChild(path, entry.path));
+    const nextPath = containsActive
+      ? remainingTabs[Math.min(Math.max(activeIndex, 0), remainingTabs.length - 1)] ?? null
+      : null;
     try {
-      if (containsActive && savePromise.current) {
-        await savePromise.current;
-      }
+      if (containsActive && !(await ensureDocumentSaved())) return;
       await deleteEntry(entry.path);
+      setOpenTabs(remainingTabs);
       if (containsActive) {
-        await kernelClient.current?.shutdown();
-        setNotebookPath(null);
-        setCells([]);
-        setMetadata({});
-        setSelectedId("");
-        setEditingId(null);
-        setSaveState("saved");
-        revision.current = 0;
-        savedRevision.current = 0;
+        resetNotebookDocument();
+        if (nextPath) await loadNotebookDocument(nextPath, false);
       }
       if (treeDirectory === entry.path || treeDirectory.startsWith(`${entry.path}/`)) {
         setTreeDirectory(parentPath(entry.path));
@@ -445,6 +665,7 @@ export default function App() {
   }
 
   function changeCellKind(id: string, kind: CellKind) {
+    if (notebookToolLockedRef.current) return;
     updateCells((current) => current.map((cell) => cell.id === id ? {
       ...cell,
       kind,
@@ -455,6 +676,7 @@ export default function App() {
   }
 
   function deleteCell(id: string) {
+    if (notebookToolLockedRef.current) return;
     const remaining = cells.filter((cell) => cell.id !== id);
     const replacement = remaining.length ? null : newCell("code");
     updateCells((current) => {
@@ -467,6 +689,7 @@ export default function App() {
   }
 
   function insertAfter(id: string, kind: CellKind) {
+    if (notebookToolLockedRef.current) return;
     const cell = newCell(kind);
     updateCells((current) => {
       const index = current.findIndex((item) => item.id === id);
@@ -501,6 +724,10 @@ export default function App() {
   }
 
   async function runCell(id: string, advance: boolean, insert: boolean): Promise<boolean> {
+    if (notebookToolLockedRef.current) {
+      setNotice("Wait for the Codex cell change to finish before running a cell.");
+      return false;
+    }
     const client = kernelClient.current;
     const cell = documentRef.current.cells.find((item) => item.id === id);
     if (!cell) return false;
@@ -576,18 +803,16 @@ export default function App() {
 
   const workspaceName = status ? basename(status.config.workspace) : "workspace";
   const environmentName = status ? basename(status.config.venv) : ".venv";
-  const activeFilename = notebookPath ? basename(notebookPath) : null;
-
   return (
     <div className={`app-shell ${leftOpen ? "has-left" : ""} ${rightOpen ? "has-right" : ""}`}>
       <header className="titlebar">
-        <div className="brand"><i>Z</i><span>zbook</span></div>
+        <div className="brand"><i><span>Z</span></i><span>zbook</span></div>
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => setLeftOpen((value) => !value)} aria-label="Toggle files"><PanelIcon /></button>
           {kernelState === "busy" ? (
             <button className="run-all" onClick={() => void interruptKernel()}><StopIcon />Interrupt</button>
           ) : (
-            <button className="run-all" disabled={!notebookPath || !status?.kernel.ready} onClick={() => void runAll()}><PlayIcon />Run all</button>
+            <button className="run-all" disabled={!notebookPath || notebookToolLocked || !status?.kernel.ready} onClick={() => void runAll()}><PlayIcon />Run all</button>
           )}
           <button className={rightOpen ? "is-active" : ""} onClick={() => setRightOpen((value) => !value)} aria-label="Toggle Codex"><PanelIcon /></button>
         </div>
@@ -602,7 +827,7 @@ export default function App() {
           directories={directories}
           loadingPaths={loadingPaths}
           onLoadDirectory={(path, refresh) => void loadDirectory(path, refresh)}
-          onRefresh={() => void refreshTree()}
+          onRefresh={() => void refreshWorkspace()}
           onOpen={openEntry}
           onNewNotebook={() => void newNotebook()}
           onNewFolder={() => void newFolder()}
@@ -614,11 +839,49 @@ export default function App() {
         />
       )}
       <section className="notebook-area">
-        <div className="tabbar">
-          {activeFilename ? (
-            <div className="active-tab"><span className="notebook-icon">▦</span>{activeFilename}<i className={saveState === "saved" ? "" : "is-dirty"} /></div>
-          ) : <div className="empty-tab">No notebook open</div>}
-          <button onClick={() => void newNotebook()} aria-label="New notebook" title="New notebook"><PlusIcon /></button>
+        <div className="tabbar" role="tablist" aria-label="Open notebooks">
+          <div className="tab-strip">
+            {openTabs.length ? openTabs.map((path) => {
+              const active = path === notebookPath;
+              return (
+                <div
+                  className={`notebook-tab ${active ? "is-active" : ""}`}
+                  key={path}
+                  ref={active ? activeTabRef : undefined}
+                >
+                  <button
+                    className="tab-select"
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    title={path}
+                    disabled={busy || notebookToolLocked || kernelState === "busy" || kernelState === "starting"}
+                    onClick={() => void openNotebook(path)}
+                  >
+                    <span className="notebook-icon">▦</span>
+                    <span className="tab-label">{basename(path)}</span>
+                    <i className={active && saveState !== "saved" ? "is-dirty" : ""} />
+                  </button>
+                  <button
+                    className="tab-close"
+                    type="button"
+                    aria-label={`Close ${basename(path)}`}
+                    title={`Close ${path}`}
+                    disabled={busy || notebookToolLocked || kernelState === "busy" || kernelState === "starting"}
+                    onClick={() => void closeNotebookTab(path)}
+                  ><CloseIcon /></button>
+                </div>
+              );
+            }) : <div className="empty-tab">No notebook open</div>}
+          </div>
+          <button
+            className="tab-add"
+            type="button"
+            disabled={busy || notebookToolLocked || kernelState === "busy" || kernelState === "starting"}
+            onClick={() => void newNotebook()}
+            aria-label="New notebook"
+            title="New notebook"
+          ><PlusIcon /></button>
         </div>
         {notebookPath ? (
           <Notebook
@@ -628,9 +891,15 @@ export default function App() {
             editingId={editingId}
             vimEnabled={vimEnabled}
             saveState={saveState}
-            canRun={Boolean(status?.kernel.ready) && kernelState !== "busy" && kernelState !== "starting"}
+            canRun={Boolean(status?.kernel.ready) && !notebookToolLocked && kernelState !== "busy" && kernelState !== "starting"}
+            locked={notebookToolLocked}
             onSelect={selectCell}
-            onEdit={(id) => { setSelectedId(id); setEditingId(id); setMode(vimEnabled ? "NORMAL" : "INSERT"); }}
+            onEdit={(id) => {
+              if (notebookToolLockedRef.current) return;
+              setSelectedId(id);
+              setEditingId(id);
+              setMode(vimEnabled ? "NORMAL" : "INSERT");
+            }}
             onChange={updateCell}
             onChangeKind={changeCellKind}
             onDelete={deleteCell}
@@ -655,6 +924,7 @@ export default function App() {
           selectedCell={cells.find((cell) => cell.id === selectedId) ?? null}
           onBeforePrompt={ensureDocumentSaved}
           onWorkspaceChanged={() => void refreshAfterCodexChange()}
+          onNotebookToolCall={handleNotebookToolCall}
         />
       )}
       {environmentOpen && status && (

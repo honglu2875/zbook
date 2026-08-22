@@ -24,6 +24,97 @@ class CodexRequestError(RuntimeError):
 
 DEFAULT_REQUEST_TIMEOUT = 30.0
 
+NOTEBOOK_TOOL_INSTRUCTIONS = """You are embedded in Zbook. When reading or changing the open
+notebook, use zbook_notebook_read and zbook_notebook_apply instead of editing the .ipynb file with
+shell commands or apply_patch. Read immediately before editing and pass its notebookPath and
+documentRevision as expectedRevision. If an edit reports a conflict, read again before retrying.
+Shell tools remain appropriate for non-notebook workspace files."""
+
+NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "name": "zbook_notebook_read",
+        "description": (
+            "Read the notebook currently open in the Zbook UI, including stable cell IDs and the "
+            "document revision needed for edits. Use this instead of reading the .ipynb with shell "
+            "commands. Takes an empty object."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "zbook_notebook_apply",
+        "description": (
+            "Atomically edit cells in the open Zbook notebook and save the result. Always call "
+            "zbook_notebook_read first, then pass its exact notebookPath and documentRevision. "
+            "Use this instead of shell commands or apply_patch for .ipynb edits. Operations run "
+            "in order and the whole batch is rejected on invalid input or a concurrent UI change."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["notebookPath", "expectedRevision", "operations"],
+            "properties": {
+                "notebookPath": {"type": "string"},
+                "expectedRevision": {"type": "integer", "minimum": 0},
+                "operations": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["op", "cellId", "source"],
+                                "properties": {
+                                    "op": {"const": "replace_source"},
+                                    "cellId": {"type": "string"},
+                                    "source": {"type": "string"},
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["op", "cellId", "cellType"],
+                                "properties": {
+                                    "op": {"const": "set_kind"},
+                                    "cellId": {"type": "string"},
+                                    "cellType": {"enum": ["code", "markdown", "raw"]},
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["op", "afterCellId", "cellType", "source"],
+                                "properties": {
+                                    "op": {"const": "insert_after"},
+                                    "afterCellId": {"type": ["string", "null"]},
+                                    "cellType": {"enum": ["code", "markdown", "raw"]},
+                                    "source": {"type": "string"},
+                                },
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["op", "cellId"],
+                                "properties": {
+                                    "op": {"const": "delete"},
+                                    "cellId": {"type": "string"},
+                                },
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+]
+
 
 def encode_message(message: dict[str, Any]) -> bytes:
     """App Server uses newline-delimited JSON-RPC messages without `jsonrpc`."""
@@ -141,6 +232,8 @@ class CodexAppServer:
             "sandbox": "workspace-write",
             "ephemeral": True,
             "serviceName": "zbook",
+            "developerInstructions": NOTEBOOK_TOOL_INSTRUCTIONS,
+            "dynamicTools": NOTEBOOK_DYNAMIC_TOOLS,
         }
         if model:
             params["model"] = model

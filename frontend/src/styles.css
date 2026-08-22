@@ -88,6 +88,7 @@ svg {
   font: 10px/1 var(--font-mono);
   font-style: normal;
 }
+.brand i > span { transform: translateY(1px); }
 
 .title-actions { justify-self: end; display: flex; align-items: center; gap: 3px; }
 .title-actions button, .tabbar button, .icon-button {
@@ -215,30 +216,65 @@ svg {
 .tabbar {
   display: flex;
   align-items: stretch;
+  min-width: 0;
   background: #1b1d1f;
   border-bottom: 1px solid var(--border);
   user-select: none;
 }
-.active-tab {
+.tab-strip {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tab-strip::-webkit-scrollbar { display: none; }
+.notebook-tab {
   position: relative;
   display: flex;
   align-items: center;
-  min-width: 168px;
-  gap: 7px;
-  padding: 0 14px;
-  background: #202326;
+  min-width: 126px;
+  max-width: 220px;
+  flex: 0 1 188px;
   border-right: 1px solid var(--border);
-  color: #bec2c6;
+  background: #1b1d1f;
+  color: #858b91;
   font-size: 11.5px;
 }
-.active-tab i { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: #737a80; }
-.active-tab i.is-dirty { background: var(--accent); }
-.active-tab::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 1px; background: var(--accent); content: ""; }
+.notebook-tab:hover { background: #1e2123; color: #aeb2b6; }
+.notebook-tab.is-active { background: #202326; color: #bec2c6; }
+.notebook-tab.is-active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 1px; background: var(--accent); content: ""; }
+.tab-select {
+  display: flex !important;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  gap: 7px;
+  padding: 0 5px 0 12px;
+  color: inherit !important;
+  text-align: left;
+}
+.tab-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-select i { width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: #666d73; }
+.tab-select i.is-dirty { background: var(--accent); }
+.tab-close {
+  align-self: stretch;
+  width: 29px;
+  min-height: 34px;
+  flex: 0 0 29px;
+  padding: 0;
+  color: #777e85 !important;
+  opacity: 0;
+}
+.notebook-tab:hover .tab-close, .notebook-tab.is-active .tab-close, .tab-close:focus-visible { opacity: 1; }
+.tab-close:hover:not(:disabled) { background: #2b2e31; color: #d0d3d6; }
+.tab-close svg { width: 10px; height: 10px; }
 .notebook-icon { color: #c5a062; font-size: 13px; }
-.tabbar > button { width: 34px; }
-.tabbar > button:hover { color: var(--text); background: #232629; }
+.tab-add { width: 34px; flex: 0 0 34px; border-left: 1px solid var(--border) !important; }
+.tab-add:hover { color: var(--text); background: #232629; }
 .tabbar svg { width: 12px; }
-.empty-tab { display: flex; align-items: center; padding: 0 14px; color: #62686e; font-size: 11px; }
+.empty-tab { display: flex; align-items: center; min-width: 0; flex: 1; padding: 0 14px; color: #62686e; font-size: 11px; }
 
 .notebook-scroll { overflow: auto; scrollbar-color: #373b3e transparent; scrollbar-width: thin; }
 .notebook-canvas { width: min(100%, 920px); min-height: 100%; margin: 0 auto; padding: 39px 42px 0; }
@@ -266,6 +302,14 @@ svg {
 }
 .notebook-cell:hover { background: #ffffff02; }
 .notebook-cell.is-selected { border-color: #34383c; background: #1b1e20; }
+.notebook-cell.is-locked .cell-editor { opacity: .76; }
+.notebook-cell.is-locked .cell-editor::after {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  cursor: wait;
+  content: "";
+}
 .notebook-cell.is-editing { border-color: #464238; background: #1c1f21; }
 .cell-rail { position: absolute; top: -1px; bottom: -1px; left: -1px; width: 2px; background: transparent; }
 .notebook-cell.is-selected .cell-rail { background: #78684f; }
@@ -287,7 +331,7 @@ svg {
 .cell-actions button { display: grid; place-items: center; width: 21px; height: 21px; padding: 0; border: 0; background: transparent; color: #696f75; cursor: pointer; }
 .cell-actions button:hover { color: var(--red); }
 .cell-actions svg { width: 11px; height: 11px; }
-.cell-editor { min-height: 48px; }
+.cell-editor { position: relative; min-height: 48px; }
 .markdown-rendered { min-height: 48px; padding: 8px 18px 11px; color: #bbc0c4; cursor: text; }
 .markdown-rendered h1 { margin: 0 0 10px; color: #e0e2e4; font-size: 24px; font-weight: 610; letter-spacing: -.03em; }
 .markdown-rendered h2 { margin: 0 0 8px; font-size: 18px; }

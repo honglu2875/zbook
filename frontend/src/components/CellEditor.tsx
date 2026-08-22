@@ -13,6 +13,7 @@ interface CellEditorProps {
   kind: CellKind;
   source: string;
   vimEnabled: boolean;
+  readOnly: boolean;
   onChange: (source: string) => void;
   onRun: (advance: boolean, insert: boolean) => void;
   onModeChange: (mode: string) => void;
@@ -22,12 +23,14 @@ export function CellEditor({
   kind,
   source,
   vimEnabled,
+  readOnly,
   onChange,
   onRun,
   onModeChange,
 }: CellEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const synchronizingSource = useRef(false);
   const callbacks = useRef({ onChange, onRun, onModeChange });
   callbacks.current = { onChange, onRun, onModeChange };
 
@@ -76,11 +79,15 @@ export function CellEditor({
         ...(vimEnabled ? [vim()] : []),
         basicSetup,
         keymap.of([indentWithTab]),
+        EditorState.readOnly.of(readOnly),
+        EditorView.editable.of(!readOnly),
         ...(kind === "code" ? [python()] : kind === "markdown" ? [markdown()] : []),
         zbookTheme,
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());
+          if (update.docChanged && !synchronizingSource.current) {
+            callbacks.current.onChange(update.state.doc.toString());
+          }
         }),
       ],
     });
@@ -89,14 +96,19 @@ export function CellEditor({
       view.current?.destroy();
       view.current = null;
     };
-  }, [kind, vimEnabled]);
+  }, [kind, vimEnabled, readOnly]);
 
   useEffect(() => {
     const editor = view.current;
     if (!editor) return;
     const current = editor.state.doc.toString();
     if (current !== source) {
-      editor.dispatch({ changes: { from: 0, to: current.length, insert: source } });
+      synchronizingSource.current = true;
+      try {
+        editor.dispatch({ changes: { from: 0, to: current.length, insert: source } });
+      } finally {
+        synchronizingSource.current = false;
+      }
     }
   }, [source]);
 

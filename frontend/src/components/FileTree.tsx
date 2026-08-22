@@ -140,7 +140,7 @@ export function FileTree({
       <div className="panel-heading">
         <span>WORKSPACE</span>
         <span className="panel-actions">
-          <button className="icon-button" onClick={onRefresh} aria-label="Refresh files" title="Refresh all opened folders"><RefreshIcon /></button>
+          <button className="icon-button" onClick={onRefresh} aria-label="Refresh files" title="Refresh workspace and reload the open notebook"><RefreshIcon /></button>
           <button className="icon-button" onClick={onNewFolder} aria-label="New folder" title="New folder"><NewFolderIcon /></button>
           <button className="icon-button" onClick={() => uploadInput.current?.click()} aria-label="Upload files" title="Upload files"><UploadIcon /></button>
           <button className="icon-button" onClick={onNewNotebook} aria-label="New notebook" title="New notebook"><PlusIcon /></button>

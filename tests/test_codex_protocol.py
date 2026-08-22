@@ -9,12 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from zbook.codex import (
+    NOTEBOOK_DYNAMIC_TOOLS,
+    NOTEBOOK_TOOL_INSTRUCTIONS,
     CodexAppServer,
     CodexProtocolError,
     CodexRequestError,
     encode_message,
 )
-from zbook.codex_handler import choose_default_model, prompt_with_context
+from zbook.codex_handler import choose_default_model, dynamic_tool_response, prompt_with_context
 
 
 class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
@@ -92,6 +94,22 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(params["model"], "gpt-5.6-terra")
             self.assertEqual(params["serviceName"], "zbook")
             self.assertTrue(params["ephemeral"])
+            self.assertEqual(params["dynamicTools"], NOTEBOOK_DYNAMIC_TOOLS)
+            self.assertEqual(params["developerInstructions"], NOTEBOOK_TOOL_INSTRUCTIONS)
+            self.assertEqual(
+                {tool["name"] for tool in params["dynamicTools"]},
+                {"zbook_notebook_read", "zbook_notebook_apply"},
+            )
+
+    def test_dynamic_tool_response_matches_app_server_shape(self) -> None:
+        response = dynamic_tool_response(True, {"documentRevision": 7, "saved": True})
+
+        self.assertTrue(response["success"])
+        self.assertEqual(response["contentItems"][0]["type"], "inputText")
+        self.assertEqual(
+            json.loads(response["contentItems"][0]["text"]),
+            {"documentRevision": 7, "saved": True},
+        )
 
     async def test_turn_applies_model_and_reasoning_effort(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

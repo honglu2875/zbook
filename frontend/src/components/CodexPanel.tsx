@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { NotebookCell } from "../model/notebook";
+import type { NotebookToolResponse } from "../model/notebookTools";
 import { websocketUrl } from "../services/http";
 import { ChevronIcon, CloseIcon, RefreshIcon, SparkIcon, StopIcon } from "./icons";
 
@@ -74,6 +75,7 @@ interface CodexPanelProps {
   selectedCell: NotebookCell | null;
   onBeforePrompt: () => Promise<boolean>;
   onWorkspaceChanged: () => void;
+  onNotebookToolCall: (tool: string, argumentsValue: unknown) => Promise<NotebookToolResponse>;
 }
 
 interface QuotaView {
@@ -91,7 +93,7 @@ function initialMessages(): Message[] {
   return [{
     id: crypto.randomUUID(),
     role: "assistant",
-    text: "I can work in this workspace and use the open notebook or selected cell as context.",
+    text: "I can work in this workspace and edit the open notebook directly through Zbook's cell tools.",
   }];
 }
 
@@ -199,6 +201,7 @@ export function CodexPanel({
   selectedCell,
   onBeforePrompt,
   onWorkspaceChanged,
+  onNotebookToolCall,
 }: CodexPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -226,8 +229,8 @@ export function CodexPanel({
   const modelsRef = useRef<CodexModel[]>([]);
   const modelRef = useRef("");
   const effortRef = useRef("");
-  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged });
-  callbacks.current = { onBeforePrompt, onWorkspaceChanged };
+  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onNotebookToolCall });
+  callbacks.current = { onBeforePrompt, onWorkspaceChanged, onNotebookToolCall };
 
   useEffect(() => {
     if (available === null) {
@@ -244,7 +247,10 @@ export function CodexPanel({
     setStage("Connecting");
     const socket = new WebSocket(websocketUrl("api/codex"));
     socketRef.current = socket;
-    socket.onmessage = (event) => handleBridgeMessage(JSON.parse(event.data) as Record<string, unknown>);
+    socket.onmessage = (event) => handleBridgeMessage(
+      JSON.parse(event.data) as Record<string, unknown>,
+      socket,
+    );
     socket.onerror = () => {
       setConnection("error");
       setProblem("The local Codex bridge could not connect.");
@@ -531,7 +537,50 @@ export function CodexPanel({
     if (method === "turn/completed") finishTurn(params);
   }
 
-  function handleBridgeMessage(message: Record<string, unknown>) {
+  async function answerNotebookTool(
+    message: Record<string, unknown>,
+    socket: WebSocket,
+  ) {
+    const requestId = message.requestId;
+    const tool = message.tool;
+    if ((typeof requestId !== "string" && typeof requestId !== "number") || typeof tool !== "string") {
+      setProblem("The Codex bridge sent an invalid notebook tool request.");
+      return;
+    }
+    const activityId = `notebook-tool-${String(message.callId ?? requestId)}`;
+    const editing = tool === "zbook_notebook_apply";
+    setStage(editing ? "Editing notebook" : "Reading notebook");
+    appendActivity(
+      activityId,
+      editing ? "Applying cell changes through Zbook…\n" : "Reading cells through Zbook…\n",
+    );
+
+    let response: NotebookToolResponse;
+    try {
+      response = await callbacks.current.onNotebookToolCall(tool, message.arguments);
+    } catch (error) {
+      response = { success: false, result: { error: String(error) } };
+    }
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: "notebookToolResult",
+        requestId,
+        success: response.success,
+        result: response.result,
+      }));
+    }
+    appendActivity(
+      activityId,
+      response.success ? "✓ Zbook notebook tool completed\n" : "· Zbook notebook tool rejected the change\n",
+    );
+    setStage("Thinking");
+  }
+
+  function handleBridgeMessage(message: Record<string, unknown>, socket: WebSocket) {
+    if (message.type === "notebookToolCall") {
+      void answerNotebookTool(message, socket);
+      return;
+    }
     if (message.type === "ready") {
       setAccount(message.account as AccountState);
       const catalog = Array.isArray(message.models)

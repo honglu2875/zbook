@@ -69,6 +69,10 @@ class CanonicalUrlHandler(web.RequestHandler):
 class IndexHandler(JupyterHandler):
     @web.authenticated
     async def get(self) -> None:
+        # index.html names content-hashed assets.  Never cache the shell so a
+        # rebuilt frontend cannot strand a running Zbook server on an old hash.
+        self.set_header("Cache-Control", "no-store, max-age=0")
+        self.set_header("Pragma", "no-cache")
         static_root = Path(self.settings["zbook_static_root"])
         index = static_root / "index.html"
         if index.is_file():
