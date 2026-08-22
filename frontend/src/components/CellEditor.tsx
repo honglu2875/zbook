@@ -1,0 +1,104 @@
+import { useEffect, useRef } from "react";
+import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
+import { EditorState } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
+import { vim } from "@replit/codemirror-vim";
+import { basicSetup } from "codemirror";
+import { indentWithTab } from "@codemirror/commands";
+import type { CellKind } from "../model/notebook";
+import { quickNotebookTheme } from "../editor/theme";
+
+interface CellEditorProps {
+  kind: CellKind;
+  source: string;
+  vimEnabled: boolean;
+  onChange: (source: string) => void;
+  onRun: (advance: boolean, insert: boolean) => void;
+  onModeChange: (mode: string) => void;
+}
+
+export function CellEditor({
+  kind,
+  source,
+  vimEnabled,
+  onChange,
+  onRun,
+  onModeChange,
+}: CellEditorProps) {
+  const host = useRef<HTMLDivElement>(null);
+  const view = useRef<EditorView | null>(null);
+  const callbacks = useRef({ onChange, onRun, onModeChange });
+  callbacks.current = { onChange, onRun, onModeChange };
+
+  useEffect(() => {
+    if (!host.current) return;
+
+    const notebookKeys = EditorView.domEventHandlers({
+      focus: () => {
+        callbacks.current.onModeChange(vimEnabled ? "NORMAL" : "INSERT");
+        return false;
+      },
+      keydown: (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          callbacks.current.onRun(false, false);
+          return true;
+        }
+        if (event.shiftKey && event.key === "Enter") {
+          event.preventDefault();
+          callbacks.current.onRun(true, false);
+          return true;
+        }
+        if (event.altKey && event.key === "Enter") {
+          event.preventDefault();
+          callbacks.current.onRun(true, true);
+          return true;
+        }
+        if (event.shiftKey && event.key === "Escape") {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement).blur();
+          callbacks.current.onModeChange("NAV");
+          return true;
+        }
+        if (vimEnabled && event.key === "Escape") callbacks.current.onModeChange("NORMAL");
+        if (vimEnabled && !event.metaKey && !event.ctrlKey && /^[iIaAoOsScC]$/.test(event.key)) {
+          callbacks.current.onModeChange("INSERT");
+        }
+        return false;
+      },
+    });
+
+    const state = EditorState.create({
+      doc: source,
+      extensions: [
+        notebookKeys,
+        ...(vimEnabled ? [vim()] : []),
+        basicSetup,
+        keymap.of([indentWithTab]),
+        kind === "code" ? python() : markdown(),
+        quickNotebookTheme,
+        EditorView.lineWrapping,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());
+        }),
+      ],
+    });
+    view.current = new EditorView({ state, parent: host.current });
+    return () => {
+      view.current?.destroy();
+      view.current = null;
+    };
+  }, [kind, vimEnabled]);
+
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor) return;
+    const current = editor.state.doc.toString();
+    if (current !== source) {
+      editor.dispatch({ changes: { from: 0, to: current.length, insert: source } });
+    }
+  }, [source]);
+
+  return <div className="cell-editor" ref={host} />;
+}

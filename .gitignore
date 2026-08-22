@@ -1,0 +1,9 @@
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+frontend/node_modules/
+src/quick_notebook/static/
