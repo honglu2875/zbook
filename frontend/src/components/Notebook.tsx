@@ -231,7 +231,7 @@ export function Notebook({
             <div className="notebook-cell-group" key={cell.id}>
               <article
                 data-cell-id={cell.id}
-                className={`notebook-cell ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
+                className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
                 tabIndex={0}
                 onFocus={() => onSelect(cell.id)}
                 onClick={() => onSelect(cell.id)}
@@ -247,40 +247,6 @@ export function Notebook({
                     onToggleCellView(cell.id, "outputLimited");
                   }}
                 />
-                <div
-                  className="cell-gutter"
-                  title={canLimitOutput
-                    ? view.outputLimited
-                      ? "Double-click to show the full output"
-                      : "Double-click to limit output height"
-                    : undefined}
-                  onDoubleClick={(event) => {
-                    event.stopPropagation();
-                    if (!canLimitOutput || (event.target as HTMLElement).closest("button")) return;
-                    event.preventDefault();
-                    onToggleCellView(cell.id, "outputLimited");
-                  }}
-                >
-                  {!titleCollapsed && (cell.kind === "code" ? (
-                    <>
-                      <button
-                        className="run-button"
-                        disabled={cellLocked || !canRun || cell.state === "running"}
-                        onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
-                        aria-label="Run cell"
-                        title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
-                      >
-                        <PlayIcon />
-                      </button>
-                      <span className="execution-count">
-                        {cell.state === "running" ? "[…]" : cell.executionCount === null ? "[ ]" : `[${cell.executionCount}]`}
-                      </span>
-                    </>
-                  ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>)}
-                  {!titleCollapsed && codexLocked && <span className="cell-codex-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
-                  {!titleCollapsed && view.outputLimited && <span className="cell-scroll-state" aria-hidden="true">↕</span>}
-                </div>
-                <div className="cell-body">
                 {!titleCollapsed && (
                   <div className="cell-actions" onDoubleClick={(event) => event.stopPropagation()}>
                     {cell.outputs.length > 0 && (
@@ -322,43 +288,77 @@ export function Notebook({
                     {titleCollapsed && codexLocked && <span className="cell-title-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
                   </header>
                 )}
-                {!titleCollapsed && (
-                  <>
-                    <div className="cell-source">
-                      {cell.kind === "markdown" && !editing ? (
-                        <div
-                          className="markdown-rendered"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (!cellLocked) onEdit(cell.id);
-                          }}
-                        >
-                          <ReactMarkdown>{cell.source}</ReactMarkdown>
-                        </div>
-                      ) : (
-                        <CellEditor
-                          kind={cell.kind}
-                          source={cell.source}
-                          vimEnabled={vimEnabled}
-                          readOnly={cellLocked}
-                          onChange={(source) => onChange(cell.id, source)}
-                          onRun={(advance, insert) => onRun(cell.id, advance, insert)}
-                          onModeChange={(nextMode) => {
-                            onModeChange(nextMode);
-                            if (nextMode === "NAV") onStopEdit(cell.id);
-                          }}
-                        />
-                      )}
-                    </div>
-                    {cell.outputs.length > 0 && (
-                      <div className={`cell-output ${view.outputLimited ? "is-height-limited" : ""}`}>
-                        {cell.outputs.map((output, index) => (
-                          <RichOutput key={`${cell.id}-${index}`} cellId={cell.id} index={index} {...output} />
-                        ))}
+                <div
+                  className="cell-gutter"
+                  title={canLimitOutput
+                    ? view.outputLimited
+                      ? "Double-click to show the full output"
+                      : "Double-click to limit output height"
+                    : undefined}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    if (!canLimitOutput || (event.target as HTMLElement).closest("button")) return;
+                    event.preventDefault();
+                    onToggleCellView(cell.id, "outputLimited");
+                  }}
+                >
+                  {!titleCollapsed && (cell.kind === "code" ? (
+                    <>
+                      <button
+                        className="run-button"
+                        disabled={cellLocked || !canRun || cell.state === "running"}
+                        onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
+                        aria-label="Run cell"
+                        title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
+                      >
+                        <PlayIcon />
+                      </button>
+                      <span className="execution-count">
+                        {cell.state === "running" ? "[…]" : cell.executionCount === null ? "[ ]" : `[${cell.executionCount}]`}
+                      </span>
+                    </>
+                  ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>)}
+                  {!titleCollapsed && codexLocked && <span className="cell-codex-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
+                  {!titleCollapsed && view.outputLimited && <span className="cell-scroll-state" aria-hidden="true">↕</span>}
+                </div>
+                <div className="cell-body">
+                  {!titleCollapsed && (
+                    <>
+                      <div className="cell-source">
+                        {cell.kind === "markdown" && !editing ? (
+                          <div
+                            className="markdown-rendered"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!cellLocked) onEdit(cell.id);
+                            }}
+                          >
+                            <ReactMarkdown>{cell.source}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <CellEditor
+                            kind={cell.kind}
+                            source={cell.source}
+                            vimEnabled={vimEnabled}
+                            readOnly={cellLocked}
+                            onChange={(source) => onChange(cell.id, source)}
+                            onRun={(advance, insert) => onRun(cell.id, advance, insert)}
+                            onModeChange={(nextMode) => {
+                              onModeChange(nextMode);
+                              if (nextMode === "NAV") onStopEdit(cell.id);
+                            }}
+                          />
+                        )}
                       </div>
-                    )}
-                  </>
-                )}
+                      {cell.outputs.length > 0 && (
+                        <div className={`cell-output ${view.outputLimited ? "is-height-limited" : ""}`}>
+                          {cell.outputs.map((output, index) => (
+                            <RichOutput key={`${cell.id}-${index}`} cellId={cell.id} index={index} {...output} />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </article>
               <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>

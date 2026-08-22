@@ -17,7 +17,7 @@ The main notebook loop is functional:
 - folders can be selected and created, and arbitrary files can be uploaded;
 - code cells execute on a real IPython kernel with streamed text, errors, HTML, and PNG output;
 - Markdown cells render in place; code and Markdown editors have syntax highlighting, bundled JetBrains Mono typography, and optional Vim bindings; the UI and prose use bundled Inter;
-- long outputs can be height-limited from the gutter without shrinking their code, scaled images expand to their native resolution on double-click with two-axis scrolling, and `#@title …` gives a code cell a compact header that can collapse the whole cell; these view preferences persist per workspace without changing the notebook file;
+- long outputs can be height-limited from the gutter without shrinking their code, scaled images expand to their native resolution on double-click with two-axis scrolling, and `#@title …` gives a code cell a dedicated title row above its execution gutter and a whole-cell collapse toggle; these view preferences persist per workspace without changing the notebook file;
 - **Run all**, execution counts, interrupt, and keyboard execution commands work;
 - the environment panel lists packages and installs or uninstalls them through serialized `uv` operations;
 - a fresh launch defaults to a scratch uv environment under `/tmp`, prepares `ipykernel`, and removes the scratch environment on shutdown;
