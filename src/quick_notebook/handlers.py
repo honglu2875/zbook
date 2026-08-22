@@ -17,6 +17,18 @@ def _config(handler: JupyterHandler) -> AppConfig:
     return handler.settings["quick_notebook_config"]
 
 
+def canonical_notebook_url(path: str, query: str) -> str:
+    target = f"{path}/"
+    return f"{target}?{query}" if query else target
+
+
+class CanonicalUrlHandler(web.RequestHandler):
+    """Add the slash required for document-relative frontend asset URLs."""
+
+    def get(self) -> None:
+        self.redirect(canonical_notebook_url(self.request.path, self.request.query))
+
+
 class IndexHandler(JupyterHandler):
     @web.authenticated
     async def get(self) -> None:

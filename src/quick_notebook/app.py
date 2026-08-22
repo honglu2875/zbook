@@ -11,14 +11,14 @@ from traitlets import Unicode
 
 from .codex import CodexAppServer
 from .config import AppConfig
-from .handlers import IndexHandler, StatusHandler
+from .handlers import CanonicalUrlHandler, IndexHandler, StatusHandler
 from .uv_env import UvEnvironment, UvRunner
 
 
 class QuickNotebookApp(ExtensionApp):
     name = "quick-notebook"
     extension_url = "/quick-notebook"
-    default_url = "/quick-notebook"
+    default_url = "/quick-notebook/"
     load_other_extensions = False
 
     workspace = Unicode(
@@ -46,18 +46,25 @@ class QuickNotebookApp(ExtensionApp):
         self.app_config = AppConfig.resolve(workspace, self.venv)
         self.uv_environment = UvEnvironment(self.app_config)
         self.uv_runner = UvRunner()
+        root_dir = str(self.app_config.workspace)
+
+        # Extension applications load after Jupyter creates these managers, so
+        # updating ServerApp alone would leave contents and kernels rooted at the
+        # process working directory. Keep every existing boundary in lockstep.
+        self.serverapp.root_dir = root_dir
+        self.serverapp.contents_manager.root_dir = root_dir
+        self.serverapp.kernel_manager.root_dir = root_dir
         self.serverapp.web_app.settings.update(
             quick_notebook_config=self.app_config,
             quick_notebook_static_root=str(self.static_root),
+            server_root_dir=root_dir,
         )
-
-        # The ContentsManager and kernels inherit the same boundary as the UI.
-        self.serverapp.root_dir = str(self.app_config.workspace)
 
     def initialize_handlers(self) -> None:
         self.handlers.extend(
             [
-                (r"/quick-notebook/?", IndexHandler),
+                (r"/quick-notebook", CanonicalUrlHandler),
+                (r"/quick-notebook/", IndexHandler),
                 (r"/quick-notebook/api/status", StatusHandler),
                 (
                     r"/quick-notebook/assets/(.*)",
