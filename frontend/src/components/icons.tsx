@@ -34,3 +34,27 @@ export const BranchIcon = (props: IconProps) => (
 export const PanelIcon = (props: IconProps) => (
   <Icon {...props}><rect x="1.75" y="2" width="12.5" height="12" rx="1" /><path d="M5.5 2v12" /></Icon>
 );
+export const RefreshIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M13 5V2.5l-1 1A5.5 5.5 0 1 0 13.3 9" /><path d="M13 2.5h-2.5" /></Icon>
+);
+export const SaveIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M2 2h9.5L14 4.5V14H2zM4.5 2v4h6V2.5M4.5 14V9h7v5" /></Icon>
+);
+export const DownloadIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M8 1.5v8M5 6.5l3 3 3-3M2.5 12.5h11" /></Icon>
+);
+export const TrashIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M3.5 4.5h9M6 4.5v-2h4v2M5 6.5v6M8 6.5v6M11 6.5v6M4 4.5l.5 10h7l.5-10" /></Icon>
+);
+export const RenameIcon = (props: IconProps) => (
+  <Icon {...props}><path d="m3 11.5-.5 2 2-.5 7.5-7.5-1.5-1.5zM9.5 5l1.5 1.5" /></Icon>
+);
+export const StopIcon = (props: IconProps) => (
+  <Icon {...props}><rect x="4" y="4" width="8" height="8" /></Icon>
+);
+export const UploadIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M8 14V4M5 7l3-3 3 3M2.5 2h11" /></Icon>
+);
+export const NewFolderIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M1.75 4.25h4l1.2 1.5h7.3v7.5H1.75zM10.5 8v3M9 9.5h3" /></Icon>
+);

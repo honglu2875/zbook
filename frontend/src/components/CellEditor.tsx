@@ -76,7 +76,7 @@ export function CellEditor({
         ...(vimEnabled ? [vim()] : []),
         basicSetup,
         keymap.of([indentWithTab]),
-        kind === "code" ? python() : markdown(),
+        ...(kind === "code" ? [python()] : kind === "markdown" ? [markdown()] : []),
         quickNotebookTheme,
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {

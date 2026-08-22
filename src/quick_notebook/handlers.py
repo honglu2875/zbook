@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 from pathlib import Path
@@ -11,10 +12,46 @@ from jupyter_server.base.handlers import APIHandler, JupyterHandler
 from tornado import web
 
 from .config import AppConfig
+from .kernel_spec import inspect_ipykernel
+from .uv_env import UvEnvironment, UvError, UvOperation, UvRunner
 
 
 def _config(handler: JupyterHandler) -> AppConfig:
-    return handler.settings["quick_notebook_config"]
+    return handler.settings["quick_notebook_app"].app_config
+
+
+def _app(handler: JupyterHandler) -> Any:
+    return handler.settings["quick_notebook_app"]
+
+
+def _environment(handler: JupyterHandler) -> UvEnvironment:
+    return handler.settings["quick_notebook_app"].uv_environment
+
+
+def _uv_runner(handler: JupyterHandler) -> UvRunner:
+    return handler.settings["quick_notebook_app"].uv_runner
+
+
+def _finish_json(handler: JupyterHandler, payload: dict[str, Any], status: int = 200) -> None:
+    handler.set_status(status)
+    handler.set_header("Content-Type", "application/json")
+    handler.finish(json.dumps(payload))
+
+
+async def _run_uv(handler: JupyterHandler, operation: UvOperation) -> tuple[int, list[str]]:
+    lines: list[str] = []
+    size = 0
+
+    def capture(line: str) -> None:
+        nonlocal size
+        if size >= 200_000:
+            return
+        remaining = 200_000 - size
+        value = line[:remaining]
+        lines.append(value)
+        size += len(value)
+
+    return await _uv_runner(handler).run(operation, capture), lines
 
 
 def canonical_notebook_url(path: str, query: str) -> str:
@@ -67,6 +104,122 @@ class StatusHandler(APIHandler):
                 "uv": shutil.which("uv"),
                 "codex": shutil.which("codex"),
             },
+            "kernel": {
+                "name": "quick-notebook",
+                **await inspect_ipykernel(config),
+            },
         }
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))
+
+
+class PackagesHandler(APIHandler):
+    """Inspect and mutate the configured environment while the server stays running."""
+
+    @web.authenticated
+    async def get(self) -> None:
+        try:
+            async with _app(self).environment_lock:
+                packages = await _uv_runner(self).list_packages(_environment(self).list())
+        except (OSError, ValueError, UvError) as error:
+            _finish_json(self, {"ok": False, "message": str(error)}, 500)
+            return
+        _finish_json(self, {"ok": True, "packages": packages})
+
+    @web.authenticated
+    async def post(self) -> None:
+        body = self.get_json_body() or {}
+        requirement = body.get("requirement")
+        if not isinstance(requirement, str):
+            _finish_json(self, {"ok": False, "message": "A requirement string is required"}, 400)
+            return
+        try:
+            async with _app(self).environment_lock:
+                operation = _environment(self).install(requirement)
+                return_code, lines = await _run_uv(self, operation)
+        except (OSError, ValueError) as error:
+            _finish_json(self, {"ok": False, "message": str(error)}, 400)
+            return
+        if return_code:
+            _finish_json(
+                self,
+                {"ok": False, "message": f"uv exited with status {return_code}", "lines": lines},
+                400,
+            )
+            return
+        _finish_json(self, {"ok": True, "lines": lines})
+
+
+class PackageHandler(APIHandler):
+    @web.authenticated
+    async def delete(self, package: str) -> None:
+        try:
+            async with _app(self).environment_lock:
+                operation = _environment(self).uninstall(package)
+                return_code, lines = await _run_uv(self, operation)
+        except (OSError, ValueError) as error:
+            _finish_json(self, {"ok": False, "message": str(error)}, 400)
+            return
+        if return_code:
+            _finish_json(
+                self,
+                {"ok": False, "message": f"uv exited with status {return_code}", "lines": lines},
+                400,
+            )
+            return
+        _finish_json(self, {"ok": True, "lines": lines})
+
+
+class KernelPrepareHandler(APIHandler):
+    @web.authenticated
+    async def post(self) -> None:
+        try:
+            async with _app(self).environment_lock:
+                operation = _environment(self).ensure_ipykernel()
+                return_code, lines = await _run_uv(self, operation)
+                kernel = await inspect_ipykernel(_config(self))
+        except (OSError, ValueError) as error:
+            _finish_json(self, {"ok": False, "message": str(error)}, 400)
+            return
+        if return_code or not kernel["ready"]:
+            message = kernel["error"] or f"uv exited with status {return_code}"
+            _finish_json(self, {"ok": False, "message": message, "lines": lines}, 400)
+            return
+        _finish_json(self, {"ok": True, "kernel": kernel, "lines": lines})
+
+
+class EnvironmentsHandler(APIHandler):
+    @web.authenticated
+    async def get(self) -> None:
+        app = _app(self)
+        candidates = await asyncio.to_thread(app.environment_candidates)
+        _finish_json(
+            self,
+            {
+                "ok": True,
+                "active": str(app.app_config.venv),
+                "candidates": candidates,
+            },
+        )
+
+    @web.authenticated
+    async def post(self) -> None:
+        body = self.get_json_body() or {}
+        path = body.get("path")
+        if not isinstance(path, str) or not path.strip():
+            _finish_json(self, {"ok": False, "message": "An environment path is required"}, 400)
+            return
+        app = _app(self)
+        try:
+            config = await app.select_environment(path)
+        except (OSError, ValueError) as error:
+            _finish_json(self, {"ok": False, "message": str(error)}, 400)
+            return
+        _finish_json(
+            self,
+            {
+                "ok": True,
+                "config": config.as_public_dict(),
+                "kernel": await inspect_ipykernel(config),
+            },
+        )

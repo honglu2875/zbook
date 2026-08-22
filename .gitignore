@@ -6,4 +6,3 @@ __pycache__/
 *.egg-info/
 dist/
 frontend/node_modules/
-src/quick_notebook/static/

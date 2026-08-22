@@ -43,10 +43,13 @@ class AppConfig:
         if not raw_venv.is_absolute():
             raw_venv = workspace_path / raw_venv
         venv_path = raw_venv.resolve()
+        nested_venv = venv_path / ".venv"
+        if not (venv_path / "pyvenv.cfg").is_file() and (nested_venv / "pyvenv.cfg").is_file():
+            venv_path = nested_venv.resolve()
         if not (venv_path / "pyvenv.cfg").is_file():
             raise ConfigurationError(f"Not a Python virtual environment: {venv_path}")
 
-        project_root = workspace_path if (workspace_path / "pyproject.toml").is_file() else None
+        project_root = venv_path.parent if (venv_path.parent / "pyproject.toml").is_file() else None
         return cls(
             workspace=workspace_path,
             venv=venv_path,

@@ -64,18 +64,25 @@ class CodexAppServer:
 
         self._reader_task = asyncio.create_task(self._read_stdout())
         self._stderr_task = asyncio.create_task(self._read_stderr())
-        await self.request(
-            "initialize",
-            {
-                "clientInfo": {
-                    "name": "quick-notebook",
-                    "title": "Quick Notebook",
-                    "version": "0.1.0",
-                },
-                "capabilities": {"experimentalApi": True},
-            },
-        )
-        await self.notify("initialized")
+        try:
+            await asyncio.wait_for(
+                self.request(
+                    "initialize",
+                    {
+                        "clientInfo": {
+                            "name": "quick-notebook",
+                            "title": "Quick Notebook",
+                            "version": "0.1.0",
+                        },
+                        "capabilities": {"experimentalApi": True},
+                    },
+                ),
+                timeout=15,
+            )
+            await self.notify("initialized")
+        except Exception:
+            await self.close()
+            raise
 
     async def request(self, method: str, params: dict[str, Any] | None = None) -> Any:
         if not self.running or self._process is None:
@@ -108,7 +115,8 @@ class CodexAppServer:
             {
                 "cwd": str(self.workspace),
                 "approvalPolicy": "on-request",
-                "sandbox": "workspace-write",
+                "sandbox": "read-only",
+                "ephemeral": True,
             },
         )
 
@@ -119,6 +127,9 @@ class CodexAppServer:
             "turn/start",
             {"threadId": thread_id, "input": [{"type": "text", "text": prompt}]},
         )
+
+    async def interrupt_turn(self, thread_id: str, turn_id: str) -> Any:
+        return await self.request("turn/interrupt", {"threadId": thread_id, "turnId": turn_id})
 
     async def events(self) -> AsyncIterator[dict[str, Any]]:
         while True:

@@ -4,18 +4,23 @@ Quick Notebook is an intentionally small, keyboard-first notebook application. I
 
 The design target is closer to Zed than JupyterLab: flat surfaces, restrained color, minimal persistent chrome, fast keyboard navigation, and no extension ecosystem to carry.
 
-## Current milestone
+## Working checkpoint
 
-This repository is an early vertical slice, not a finished notebook application. It currently contains:
+The main notebook loop is functional:
 
-- a Jupyter `ExtensionApp` shell rooted to one validated workspace;
-- exact virtual-environment interpreter selection and ephemeral kernelspec generation;
-- serialized, shell-free `uv add` / `uv remove` / `uv pip` operations;
-- an asynchronous Codex App Server client that uses the locally signed-in Codex CLI (no API key);
-- a responsive React prototype with a file tree, notebook cells, syntax highlighting, markdown rendering, Vim bindings, and the Codex conversation surface;
-- dependency-independent unit tests for path boundaries, `uv` command construction, and Codex JSONL framing.
+- the file tree is served by Jupyter's Contents API and is rooted at the configured workspace;
+- notebooks can be created, opened, renamed, deleted, uploaded, autosaved, and exported as `.ipynb`;
+- folders can be selected and created, and arbitrary files can be uploaded;
+- code cells execute on a real IPython kernel with streamed text, errors, HTML, and PNG output;
+- Markdown cells render in place; code and Markdown editors have syntax highlighting and optional Vim bindings;
+- **Run all**, execution counts, interrupt, and keyboard execution commands work;
+- the environment panel lists packages and installs or uninstalls them through serialized `uv` operations;
+- a fresh launch defaults to a scratch uv environment under `/tmp`, prepares `ipykernel`, and removes the scratch environment on shutdown;
+- workspace `.venv` folders are detected and can be selected live; a project folder or uv-venv path can also be entered manually;
+- the Codex panel uses the locally signed-in Codex CLI and ChatGPT subscription—no application API key—and streams turns through Codex App Server;
+- Codex receives optional notebook/cell context and exposes command/file approvals, interruption, and ChatGPT sign-in. Threads start read-only; workspace writes require an explicit approval.
 
-Kernel execution, notebook persistence, live package APIs, and browser-to-Codex event streaming are the next integration milestone. The prototype labels its simulated output accordingly.
+This is still a focused checkpoint, not a JupyterLab replacement. Only one notebook is open at a time; non-notebook files are managed but not edited; Jupyter widgets and arbitrary JavaScript outputs are not supported; and Codex threads are currently ephemeral.
 
 ## Architecture
 
@@ -31,15 +36,14 @@ Jupyter Server ExtensionApp
   └─ static production frontend
 ```
 
-Python owns processes, filesystem boundaries, and Jupyter integration. TypeScript owns interaction state and rendering. The selected project environment is deliberately separate from the app's own environment so installing a notebook package cannot destabilize the server.
+Python owns processes, filesystem boundaries, and Jupyter integration. TypeScript owns interaction state and rendering. The selected notebook environment is deliberately separate from the app's own environment so installing a package cannot destabilize the server. The Codex bridge follows the official [Codex App Server](https://developers.openai.com/codex/app-server) protocol over a private authenticated WebSocket.
 
 ## Run the checks
 
-The current tests need only Python 3.11 or newer:
-
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python -m compileall -q src tests
+uv run ruff check src tests
+uv run pytest -q
+cd frontend && npm run build
 ```
 
 ## Build the web client
@@ -54,18 +58,25 @@ npm run build
 
 The Vite build is emitted into `src/quick_notebook/static/`, where the Python application serves it.
 
-## Launch the Python shell
+## Launch
 
-Create the application environment separately from the workspace environment:
+Build once, then point the application at the directory that should be visible in the file tree:
 
 ```bash
 uv sync --dev
-uv run quick-notebook \
-  --QuickNotebookApp.workspace=/absolute/path/to/workspace \
-  --QuickNotebookApp.venv=/absolute/path/to/workspace/.venv
+cd frontend && npm install && npm run build && cd ..
+uv run quick-notebook --QuickNotebookApp.workspace=/absolute/path/to/workspace
 ```
 
-The selected environment must already contain `pyvenv.cfg` and a Python interpreter. Installing `ipykernel` automatically will be exposed through the package-management UI in the next milestone.
+The default kernel environment is a disposable uv venv under `/tmp`. To start with a persistent environment instead, pass either its path or a project folder containing `.venv`:
+
+```bash
+uv run quick-notebook \
+  --QuickNotebookApp.workspace=/absolute/path/to/workspace \
+  --QuickNotebookApp.venv=/absolute/path/to/project/.venv
+```
+
+The same choice can be changed from the environment panel while the app is running. A manually selected environment must be a uv-created virtual environment.
 
 ## Notebook key model
 

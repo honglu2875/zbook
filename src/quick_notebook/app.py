@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import atexit
 import os
+import shutil
 from pathlib import Path
 
 from jupyter_server.extension.application import ExtensionApp
@@ -10,8 +13,25 @@ from tornado.web import StaticFileHandler
 from traitlets import Unicode
 
 from .codex import CodexAppServer
-from .config import AppConfig
-from .handlers import CanonicalUrlHandler, IndexHandler, StatusHandler
+from .codex_handler import CodexWebSocketHandler
+from .config import AppConfig, ConfigurationError
+from .environments import (
+    bootstrap_ipykernel,
+    create_temporary_uv_environment,
+    discover_uv_environments,
+    environment_path,
+    is_uv_environment,
+)
+from .handlers import (
+    CanonicalUrlHandler,
+    EnvironmentsHandler,
+    IndexHandler,
+    KernelPrepareHandler,
+    PackageHandler,
+    PackagesHandler,
+    StatusHandler,
+)
+from .kernel_spec import install_runtime_kernel_spec
 from .uv_env import UvEnvironment, UvRunner
 
 
@@ -27,8 +47,11 @@ class QuickNotebookApp(ExtensionApp):
         config=True,
     )
     venv = Unicode(
-        default_value=".venv",
-        help="uv-managed virtual environment, absolute or relative to the workspace.",
+        default_value="",
+        help=(
+            "Optional uv-managed virtual environment, absolute or relative to the workspace. "
+            "When omitted, Quick Notebook creates a temporary environment under /tmp."
+        ),
         config=True,
     )
 
@@ -36,16 +59,36 @@ class QuickNotebookApp(ExtensionApp):
     uv_environment: UvEnvironment
     uv_runner: UvRunner
     codex: CodexAppServer | None = None
+    temporary_environment_root: Path | None = None
+    environment_lock: asyncio.Lock
+    codex_lock: asyncio.Lock
 
     @property
     def static_root(self) -> Path:
         return Path(__file__).parent / "static"
 
     def initialize_settings(self) -> None:
-        workspace = self.workspace or os.getcwd()
-        self.app_config = AppConfig.resolve(workspace, self.venv)
+        workspace = Path(self.workspace or os.getcwd()).expanduser().resolve()
+        if not workspace.is_dir():
+            raise ConfigurationError(f"Workspace is not a directory: {workspace}")
+        selected_venv: str | Path
+        if self.venv:
+            selected_venv = self.venv
+        else:
+            self.temporary_environment_root, selected_venv = create_temporary_uv_environment()
+            atexit.register(self._cleanup_temporary_environment)
+            bootstrap_error = bootstrap_ipykernel(Path(selected_venv))
+            if bootstrap_error:
+                self.log.warning(
+                    "The temporary environment was created, but ipykernel setup failed: %s",
+                    bootstrap_error,
+                )
+
+        self.app_config = AppConfig.resolve(workspace, selected_venv)
         self.uv_environment = UvEnvironment(self.app_config)
         self.uv_runner = UvRunner()
+        self.environment_lock = asyncio.Lock()
+        self.codex_lock = asyncio.Lock()
         root_dir = str(self.app_config.workspace)
 
         # Extension applications load after Jupyter creates these managers, so
@@ -54,11 +97,68 @@ class QuickNotebookApp(ExtensionApp):
         self.serverapp.root_dir = root_dir
         self.serverapp.contents_manager.root_dir = root_dir
         self.serverapp.kernel_manager.root_dir = root_dir
+        kernel_root = install_runtime_kernel_spec(self.app_config, self.serverapp.runtime_dir)
+        kernel_dirs = [str(kernel_root), *self.serverapp.kernel_spec_manager.kernel_dirs]
+        self.serverapp.kernel_spec_manager.kernel_dirs = list(dict.fromkeys(kernel_dirs))
         self.serverapp.web_app.settings.update(
+            quick_notebook_app=self,
             quick_notebook_config=self.app_config,
+            quick_notebook_environment=self.uv_environment,
             quick_notebook_static_root=str(self.static_root),
+            quick_notebook_uv_runner=self.uv_runner,
             server_root_dir=root_dir,
         )
+
+    def environment_candidates(self) -> list[dict[str, str | bool | None]]:
+        candidates = [
+            candidate.as_dict()
+            for candidate in discover_uv_environments(self.app_config.workspace)
+        ]
+        active = str(self.app_config.venv)
+        if all(candidate["path"] != active for candidate in candidates):
+            candidates.insert(
+                0,
+                {
+                    "path": active,
+                    "project": (
+                        str(self.app_config.project_root) if self.app_config.project_root else None
+                    ),
+                    "label": (
+                        "Temporary environment"
+                        if self.is_temporary_environment
+                        else "Selected environment"
+                    ),
+                },
+            )
+        for candidate in candidates:
+            candidate["active"] = candidate["path"] == active
+            candidate["temporary"] = bool(
+                self.temporary_environment_root
+                and Path(str(candidate["path"])).is_relative_to(self.temporary_environment_root)
+            )
+        return candidates
+
+    @property
+    def is_temporary_environment(self) -> bool:
+        return bool(
+            self.temporary_environment_root
+            and self.app_config.venv.is_relative_to(self.temporary_environment_root)
+        )
+
+    async def select_environment(self, value: str) -> AppConfig:
+        async with self.environment_lock:
+            selected = environment_path(value, self.app_config.workspace)
+            if not is_uv_environment(selected):
+                raise ConfigurationError(f"Not a uv virtual environment: {selected}")
+            config = AppConfig.resolve(self.app_config.workspace, selected)
+            self.app_config = config
+            self.uv_environment = UvEnvironment(config)
+            install_runtime_kernel_spec(config, self.serverapp.runtime_dir)
+            self.serverapp.web_app.settings.update(
+                quick_notebook_config=config,
+                quick_notebook_environment=self.uv_environment,
+            )
+            return config
 
     def initialize_handlers(self) -> None:
         self.handlers.extend(
@@ -66,6 +166,11 @@ class QuickNotebookApp(ExtensionApp):
                 (r"/quick-notebook", CanonicalUrlHandler),
                 (r"/quick-notebook/", IndexHandler),
                 (r"/quick-notebook/api/status", StatusHandler),
+                (r"/quick-notebook/api/environments", EnvironmentsHandler),
+                (r"/quick-notebook/api/packages", PackagesHandler),
+                (r"/quick-notebook/api/packages/([^/]+)", PackageHandler),
+                (r"/quick-notebook/api/kernel/prepare", KernelPrepareHandler),
+                (r"/quick-notebook/api/codex", CodexWebSocketHandler),
                 (
                     r"/quick-notebook/assets/(.*)",
                     StaticFileHandler,
@@ -75,14 +180,30 @@ class QuickNotebookApp(ExtensionApp):
         )
 
     async def get_codex(self) -> CodexAppServer:
-        if self.codex is None:
-            self.codex = CodexAppServer(self.app_config.workspace)
-            await self.codex.start()
-        return self.codex
+        async with self.codex_lock:
+            if self.codex is not None and self.codex.running:
+                return self.codex
+            if self.codex is not None:
+                await self.codex.close()
+            client = CodexAppServer(self.app_config.workspace)
+            try:
+                await client.start()
+            except Exception:
+                await client.close()
+                raise
+            self.codex = client
+            return client
 
     async def stop_extension(self) -> None:
         if self.codex is not None:
             await self.codex.close()
+        self._cleanup_temporary_environment()
+
+    def _cleanup_temporary_environment(self) -> None:
+        root = self.temporary_environment_root
+        self.temporary_environment_root = None
+        if root is not None:
+            shutil.rmtree(root, ignore_errors=True)
 
 
 def main() -> None:

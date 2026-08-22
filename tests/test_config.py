@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from quick_notebook.config import AppConfig, ConfigurationError
-from quick_notebook.kernel_spec import build_kernel_spec
+from quick_notebook.kernel_spec import build_kernel_spec, install_runtime_kernel_spec
 
 
 class ConfigTests(unittest.TestCase):
@@ -50,6 +51,17 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(spec["argv"][0], str(config.python))
         self.assertEqual(spec["env"]["VIRTUAL_ENV"], str(config.venv))
+
+    def test_runtime_kernelspec_is_process_local(self) -> None:
+        temporary, workspace, _ = self.make_environment()
+        self.addCleanup(temporary.cleanup)
+        config = AppConfig.resolve(workspace, ".venv")
+
+        kernel_root = install_runtime_kernel_spec(config, Path(temporary.name) / "runtime")
+        spec = json.loads((kernel_root / "quick-notebook" / "kernel.json").read_text())
+
+        self.assertEqual(spec["argv"][0], str(config.python))
+        self.assertEqual(kernel_root.name, "quick-notebook-kernels")
 
 
 if __name__ == "__main__":

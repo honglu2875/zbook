@@ -8,7 +8,7 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL("../src/quick_notebook/static", import.meta.url)),
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: false,
   },
   server: {
     port: 5173,
