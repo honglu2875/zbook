@@ -1,35 +1,106 @@
 # Zbook
 
-Zbook is an intentionally small, keyboard-first notebook application. It keeps the useful core of Jupyter—real `.ipynb` files, IPython kernels, markdown, rich outputs, and a workspace tree—then adds a first-class local Codex panel and a focused `uv` environment workflow.
+Zbook is a tiny personal project to create a different jupyter notebook frontend. In this AI age it is hard not to have a plugin on the side of your notebook to assist those boilerplate data processing/charting code. It still uses IPython for execution and a Jupyter Server backend, but the whole point of this repo is a custom and minimal React frontend and a uv-based environment management. For me, it is also important to have a VIM keybinding support (can be toggled at the lower left bottom) and natural notebook integration with Codex. I prefer a bunch of notebook-specific tool calls rather than letting Codex do a bunch of bash magics and keep reloading from file.
 
-The design target is closer to Zed than JupyterLab: flat surfaces, restrained color, minimal persistent chrome, fast keyboard navigation, and no extension ecosystem to carry.
+I would like to keep features minimal to my own taste. I do not even know if other people would want to use it or contribute, but contribution is welcomed. As long as it is just myself making changes, I will keep pushing to `main` without setting up contribution guidelines. But once this changes, a standard PR and reviewing process will be used.
 
-## Working checkpoint
+For Claude users: Claude is good at frontend and just build one yourself. Personally I do not see a reason to use Claude until they genuinely start to care about their B2C business and each individual user rather than doing marketing stunts.
 
-The main notebook loop is functional:
+## Quick start
 
-- the file tree is served by Jupyter's Contents API and is rooted at the configured workspace;
-- notebooks can be created, opened in closable tabs, renamed inline by double-clicking a tab, deleted, uploaded, autosaved, and exported as `.ipynb`;
-- open tabs, the active notebook, selected cell, and panel visibility are restored per workspace, while personal editor preferences persist across workspaces in the browser;
-- `Ctrl/Cmd-P` opens a workspace file picker and `Ctrl/Cmd-Shift-P` opens the command palette;
-- the workspace and Codex panes are draggable, keyboard-resizable, and remember their widths across reloads;
-- refreshing the workspace also reloads the active notebook from disk (after confirming before discarding local unsaved changes);
-- folders can be selected and created, and arbitrary files can be uploaded;
-- code cells execute on a real IPython kernel with streamed text, errors, HTML, and PNG output;
-- Markdown cells render in place; code and Markdown editors have syntax highlighting, bundled JetBrains Mono typography, and optional Vim bindings; the UI and prose use bundled Inter;
-- long outputs can be height-limited from the gutter without shrinking their code, scaled images expand to their native resolution on double-click with two-axis scrolling, and `#@title …` gives a code cell a dedicated title row above its execution gutter and a whole-cell collapse toggle; these view preferences persist per workspace without changing the notebook file;
-- **Run all**, execution counts, interrupt, and keyboard execution commands work;
-- the environment panel lists packages and installs or uninstalls them through serialized `uv` operations;
-- a fresh launch defaults to a scratch uv environment under `/tmp`, prepares `ipykernel`, and removes the scratch environment on shutdown;
-- workspace `.venv` folders are detected and can be selected live; a project folder or uv-venv path can also be entered manually;
-- the Codex panel uses the locally signed-in Codex CLI and ChatGPT subscription—no application API key—and streams turns through Codex App Server;
-- Codex receives optional notebook/cell context and exposes live command/file activity plus any required approvals;
-- Codex gets dedicated read/lock/apply cell tools: the read response advertises the current action inventory, relevant cells become visibly read-only across the full reasoning-and-editing turn, remaining locks release automatically at turn end, and edits are revision-checked, atomic, undoable, and saved without a shell/edit/refresh round trip; source-light reads plus `move_after` and `swap` operations make reordering inexpensive;
-- each Codex cell edit gets an in-notebook review marker and a safe one-step undo until the notebook changes again;
-- the Codex pane reads the installed CLI's model catalog and subscription rate limits, defaults to GPT-5.6-Luna with medium reasoning when available, and provides model/effort pickers, quota refresh, sign-in, and sign-out.
-- Zbook-created Codex threads persist through App Server, are remembered per workspace, and can be resumed from the compact thread switcher with command/file/notebook activity restored and Zbook's private context augmentation kept out of the visible transcript.
+The Python dependencies are installed automatically and the compiled React assets are included in the package. The only required external tool is [uv](https://docs.astral.sh/uv/getting-started/installation/). [Codex CLI](https://learn.chatgpt.com/docs/codex/cli#getting-started) is optional, but required for the assistant panel.
 
-This is still a focused checkpoint, not a JupyterLab replacement. Tabs share one workspace kernel and save before switching; non-notebook files are managed but not edited; and Jupyter widgets and arbitrary JavaScript outputs are not supported.
+Install Zbook as an isolated uv tool:
+
+```bash
+uv tool install zbook
+```
+
+You can run
+```bash
+zbook check
+```
+to see if your environment satisfies the requirements.
+
+To run, it is the typical notebook experience: try
+```bash
+zbook run
+```
+and it will serve the frontend on `localhost`, normally on port `8888` or the next available port. It uses Jupyter's token mechanism and you end up visiting a URL such as `http://localhost:8888/zbook/?token=......`.
+
+One can customize the address and the port it listens to, such as
+```bash
+zbook run --ip 0.0.0.0 --port 8890
+```
+
+> [!WARNING]
+> Think twice when using `--ip 0.0.0.0` unless you know what you are doing. Typically what you really need is ssh port-forwarding.
+
+## Environment management
+
+Kernel environments and packages are managed by `uv`, because it is fast and does not make copies everywhere in your computer. Jupyter Server launches the actual IPython kernel from the selected environment. The default environment is determined in the following ways:
+
+- An explicitly supplied `--ZbookApp.venv` has priority.
+- Otherwise, if your workspace directory (defaulting to your current CWD unless you set `--workspace-dir`) has a usable uv-managed `.venv` folder, Zbook will use it.
+- Otherwise, an ephemeral environment inside your `/tmp` folder is created and removed when Zbook exits. You should not rely on it for persistent packages.
+
+An environment can be selected explicitly at startup through the Jupyter passthrough:
+
+```bash
+zbook run -- --ZbookApp.venv=/path/to/project/.venv
+```
+
+At the bottom of the workspace sidebar, you can click the environment control and get a popup with more details. You can:
+
+- Switch to a detected uv environment or supply a path.
+- Install or uninstall libraries live while working on a notebook.
+
+## Notebook navigation mode
+
+You can navigate the cells using keyboard.
+
+- Without Vim bindings, `Escape` leaves an editor and enters notebook navigation mode. With Vim enabled, it steps back one layer at a time as described below.
+- `j` / `k` or the arrow keys move between cells in navigation mode.
+- `Enter` or `i` edits the selected cell.
+- `a` inserts a code cell above; `b` or `o` inserts one below. Hover or keyboard-focus the space between cells to choose Code or Markdown explicitly.
+- `Ctrl-Enter` runs in place, `Shift-Enter` runs and advances, and `Alt-Enter` runs and inserts.
+
+Vim bindings are opt-in and can be toggled from the status bar on the lower left. The preference persists across workspaces in browser storage. The navigation resembles Vim, but there are three layers: `[Cell Navigation] -> [Vim Normal] -> [Vim Insert]`. `Enter` or `i` moves from cell navigation into Vim normal mode, and another `i` enters Vim insert mode. `Escape` reverses one layer at a time: insert to normal, then normal to cell navigation. Cell-level operations only happen in Cell Navigation mode.
+
+## Development
+
+Development requires Python 3.11 or newer, uv, and Node.js 20.19 or newer. Codex CLI is only needed when testing the assistant integration.
+
+Clone the repository, create a branch, and install the locked Python and frontend dependencies:
+
+```bash
+git clone git@github.com:honglu2875/zbook.git
+cd zbook
+git switch -c my-change
+uv sync --locked --dev
+cd frontend
+npm ci
+npm run build
+cd ..
+```
+
+The frontend build is written directly to `src/zbook/static/`, which is also what the Python package serves. Launch the local checkout with:
+
+```bash
+uv run zbook check
+uv run zbook run --workspace-dir /path/to/workspace
+```
+
+Before committing, run the same core checks used by the release workflow:
+
+```bash
+uv run ruff check .
+uv run pytest -q
+cd frontend
+npm run build
+```
+
+Commit changes under `src/zbook/static/` whenever the frontend source changes. Ordinary PyPI users receive these compiled assets and do not need Node.js.
 
 ## Architecture
 
@@ -48,77 +119,11 @@ Jupyter Server ExtensionApp
 
 Python owns processes, filesystem boundaries, and Jupyter integration. TypeScript owns interaction state and rendering. The selected notebook environment is deliberately separate from the app's own environment so installing a package cannot destabilize the server. Codex runs with workspace-write scope, while commands that need broader filesystem or network access still use the CLI's approval flow. The bridge follows the official [Codex App Server](https://developers.openai.com/codex/app-server) protocol over a private authenticated WebSocket.
 
-## Run the checks
-
-```bash
-uv run ruff check src tests
-uv run pytest -q
-cd frontend && npm run build
-```
-
-## Build the web client
-
-Use Node.js 20.19 or newer:
-
-```bash
-cd frontend
-npm install
-npm run build
-```
-
-The Vite build is emitted into `src/zbook/static/`, where the Python application serves it.
-
-## Install and launch
-
-Build the web client once, then install the local package as a uv tool:
-
-```bash
-uv sync --dev
-cd frontend && npm install && npm run build && cd ..
-uv tool install .
-```
-
-The installed command has a small preflight check and a dedicated launch command:
-
-```bash
-zbook check
-zbook run
-zbook run --workspace-dir /absolute/path/to/workspace
-zbook run --ip 0.0.0.0 --port 8888
-```
-
-`zbook run` uses the current directory as its workspace and listens only on Jupyter's `localhost` default. Binding a wildcard or non-loopback address prints a highlighted security warning: remote clients that obtain access can execute notebook code and reach the selected workspace and Codex. `0.0.0.0` listens on every network interface, though actual reachability still depends on the host firewall and network configuration. Keep Jupyter authentication enabled.
-
-The default kernel environment is a disposable uv venv under `/tmp`; a persistent uv environment can be selected from the environment panel while the app is running.
-
-Jupyter Server options go after a `--` passthrough boundary:
-
-```bash
-zbook run --workspace-dir /absolute/path/to/workspace --port 8890 -- \
-  --ServerApp.open_browser=False
-```
-
-Startup environment traits can be passed the same way when needed:
-
-```bash
-zbook run --workspace-dir /absolute/path/to/workspace -- \
-  --ZbookApp.venv=/absolute/path/to/project/.venv
-```
-
-For compatibility, Jupyter flags supplied without `--` are still forwarded, but Zbook prints a highlighted warning showing the preferred form. The old direct form (`zbook --ZbookApp.workspace=…`) also remains available with a migration warning. During development, prefix these commands with `uv run`, such as `uv run zbook check`.
-
 ## Releasing
 
 Releases are built and published by `.github/workflows/release.yml` through PyPI Trusted Publishing. The PyPI publisher must match the `honglu2875/zbook` repository, the `release.yml` workflow, and the `pypi` GitHub environment.
 
-For the first release, tag the current `0.1.0` commit after configuring the `pypi` environment and pending PyPI publisher:
-
-```bash
-git tag -a v0.1.0 -m "zbook 0.1.0"
-git push origin v0.1.0
-```
-
-For subsequent releases, update the sole package-version source in `pyproject.toml`, review the lockfile, commit, and push the matching tag:
+For a new release, update the sole package-version source in `pyproject.toml`, review the lockfile, commit, and push the matching tag:
 
 ```bash
 uv version 0.1.1
@@ -129,17 +134,6 @@ git push origin main v0.1.1
 ```
 
 The workflow rejects a tag that does not match the package version, rebuilds and verifies the committed web client, tests both distribution formats in isolated environments, and grants the publishing credential only to the final PyPI job. Published PyPI versions cannot be replaced; use a new version for every changed release.
-
-## Notebook key model
-
-- `Shift-Escape` leaves an editor and enters notebook navigation mode.
-- `j` / `k` or the arrow keys move between cells in navigation mode.
-- `Enter` or `i` edits the selected cell.
-- `a` inserts a code cell above; `b` or `o` inserts one below. Hover or keyboard-focus the space between cells to choose Code or Markdown explicitly.
-- `Ctrl-Enter` runs in place, `Shift-Enter` runs and advances, and `Alt-Enter` runs and inserts.
-- Vim bindings are opt-in and can be toggled from the status bar. The preference persists across workspaces, and Vim receives its keymap before the standard CodeMirror keymaps.
-
-This two-level model avoids the classic conflict between Vim's modes and notebook-level commands: notebook navigation is a separate outer mode, and Vim operates only inside the active editor.
 
 ## License
 
