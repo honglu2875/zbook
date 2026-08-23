@@ -624,6 +624,8 @@ body.is-resizing-pane .app-shell { transition: none; }
   position: relative;
   display: grid;
   grid-template-rows: 36px 32px minmax(0, 1fr) auto;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   background: var(--panel);
@@ -742,10 +744,10 @@ body.is-resizing-pane .app-shell { transition: none; }
 .approval-card button.approval-primary { border-color: #594c39; color: #d2ad70; }
 .codex-problem { width: 100%; padding: 7px 8px; border: 1px solid #4a3435; background: #271f20; color: #c78082; text-align: left; font-size: 9.5px; cursor: pointer; }
 
-.prompt-box { margin: 0 11px 11px; border: 1px solid #3a3e42; background: #202326; box-shadow: 0 6px 18px #0002; }
+.prompt-box { width: calc(100% - 22px); max-width: calc(100% - 22px); min-width: 0; margin: 0 11px 11px; overflow: hidden; border: 1px solid #3a3e42; background: #202326; box-shadow: 0 6px 18px #0002; }
 .prompt-box:focus-within { border-color: #555044; }
-.prompt-selection-quote { margin: 7px 7px 2px; overflow: hidden; border: 1px solid #3c4246; border-radius: 5px; background: #1b1e20; }
-.prompt-selection-quote header { display: flex; align-items: center; justify-content: space-between; min-height: 27px; padding: 0 5px 0 8px; border-bottom: 1px solid #303438; }
+.prompt-selection-quote { width: calc(100% - 14px); max-width: calc(100% - 14px); min-width: 0; margin: 7px 7px 2px; overflow: hidden; border: 1px solid #3c4246; border-radius: 5px; background: #1b1e20; }
+.prompt-selection-quote header { display: flex; min-width: 0; align-items: center; justify-content: space-between; min-height: 27px; padding: 0 5px 0 8px; border-bottom: 1px solid #303438; }
 .prompt-selection-quote header > span { display: flex; min-width: 0; align-items: center; gap: 5px; }
 .prompt-selection-quote header svg { width: 10px; height: 10px; flex: 0 0 auto; color: #b79560; fill: currentColor; stroke: currentColor; }
 .prompt-selection-quote header strong { color: #c9b084; font-size: 9.5px; font-weight: 580; white-space: nowrap; }
@@ -754,7 +756,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .prompt-selection-quote header button:hover { background: #292d30; color: #c98b8d; }
 .prompt-selection-quote header button:disabled { color: #484e53; cursor: default; }
 .prompt-selection-quote header button svg { width: 9px; height: 9px; color: inherit; fill: none; }
-.prompt-selection-quote pre { max-height: 76px; margin: 0; overflow: auto; padding: 7px 8px; color: #9ca3a8; font: 9.5px/1.45 var(--font-mono); white-space: pre; scrollbar-color: #3b4044 transparent; scrollbar-width: thin; }
+.prompt-selection-quote pre { width: 100%; max-width: 100%; min-width: 0; max-height: 76px; margin: 0; overflow: auto; padding: 7px 8px; color: #9ca3a8; font: 9.5px/1.45 var(--font-mono); white-space: pre; scrollbar-color: #3b4044 transparent; scrollbar-width: thin; }
 .prompt-box textarea { display: block; width: 100%; resize: none; padding: 10px 11px 4px; border: 0; outline: 0; background: transparent; color: #d5d8da; font: 13px/1.5 var(--font-ui); }
 .prompt-box textarea::placeholder { color: #656b71; }
 .prompt-actions { display: flex; align-items: center; height: 31px; padding: 0 6px 0 9px; }
