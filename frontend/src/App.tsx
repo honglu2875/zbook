@@ -20,7 +20,6 @@ import {
   PlusIcon,
   SearchIcon,
   StopIcon,
-  ZbookMarkIcon,
 } from "./components/icons";
 import {
   Notebook,
@@ -2889,7 +2888,10 @@ export default function App() {
       style={appShellStyle}
     >
       <header className="titlebar">
-        <div className="brand"><ZbookMarkIcon className="brand-mark" /><span>zbook</span></div>
+        <div className="brand">
+          <img className="brand-mark" src="./assets/favicon.svg" alt="" aria-hidden="true" draggable={false} />
+          <span>zbook</span>
+        </div>
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => toggleSidePanel("left")} aria-label="Toggle files" aria-pressed={leftOpen}><PanelIcon /></button>
           <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title="Quick open (Ctrl/Cmd-P)"><SearchIcon /></button>

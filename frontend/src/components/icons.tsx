@@ -88,9 +88,3 @@ export const LockIcon = (props: IconProps) => (
 export const NotebookIcon = (props: IconProps) => (
   <Icon {...props}><rect x="2" y="1.75" width="12" height="12.5" rx="1.25" /><path d="M5.25 1.75v12.5M8 5h3.5M8 8h3.5M8 11h2.25" /></Icon>
 );
-export const ZbookMarkIcon = (props: IconProps) => (
-  <Icon {...props}>
-    <rect className="zbook-mark-frame" x="1.5" y="1.5" width="13" height="13" rx="2" />
-    <path className="zbook-mark-letter" d="M5 5.4h6l-6 6.5h6" />
-  </Icon>
-);

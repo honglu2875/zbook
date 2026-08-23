@@ -84,9 +84,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 }
 
 .brand { display: flex; align-items: center; justify-self: start; gap: 8px; color: #a7abb0; font-size: 12px; font-weight: 520; }
-.brand-mark { width: 18px; height: 18px; flex: 0 0 auto; }
-.brand-mark .zbook-mark-frame { stroke: #686055; stroke-width: 1; }
-.brand-mark .zbook-mark-letter { stroke: #d3ae70; stroke-width: 1.3; stroke-linecap: square; stroke-linejoin: miter; }
+.brand-mark { display: block; width: 18px; height: 18px; flex: 0 0 auto; transform: translateY(-1px); }
 
 .title-actions { justify-self: end; display: flex; align-items: center; gap: 3px; }
 .title-actions button, .tabbar button, .icon-button {
