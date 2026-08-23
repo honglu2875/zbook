@@ -33,6 +33,7 @@ _ZBOOK_CONTEXT_MARKER = "\n\nZbook context supplied by the user:\n"
 _MAX_ACTIVITY_TEXT = 12_000
 _MAX_DYNAMIC_TOOL_RESPONSE_BYTES = 8 * 1024 * 1024
 _MAX_SELECTION_CONTEXT_CHARACTERS = 20_000
+_MAX_SELECTION_CONTEXT_LINES = 200
 
 
 def choose_default_model(models: list[dict[str, Any]]) -> tuple[str | None, str | None]:
@@ -114,7 +115,9 @@ def prompt_with_context(prompt: str, context: Any) -> str:
                 else ""
             )
             kind = f" {selection_kind}" if isinstance(selection_kind, str) else ""
-            excerpt = selection_text[:_MAX_SELECTION_CONTEXT_CHARACTERS]
+            excerpt = "".join(
+                selection_text.splitlines(keepends=True)[:_MAX_SELECTION_CONTEXT_LINES]
+            )[:_MAX_SELECTION_CONTEXT_CHARACTERS]
             details.append(
                 f"Selected immutable quote from{kind} {location}{origin}{identity}:\n"
                 f"<zbook_selection>\n{excerpt}\n</zbook_selection>"

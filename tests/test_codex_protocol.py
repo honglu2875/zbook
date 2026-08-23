@@ -84,6 +84,16 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         )[0]
         self.assertEqual(excerpt, "x" * 20_000)
 
+        many_lines = prompt_with_context(
+            "Inspect this",
+            {"selection": {"text": "".join(f"line {index}\n" for index in range(250))}},
+        )
+        excerpt = many_lines.partition("<zbook_selection>\n")[2].partition(
+            "\n</zbook_selection>"
+        )[0]
+        self.assertEqual(len(excerpt.splitlines()), 200)
+        self.assertNotIn("line 200", excerpt)
+
     async def test_dispatch_resolves_response(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             client = CodexAppServer(Path(directory))

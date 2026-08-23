@@ -225,7 +225,7 @@ export function CellEditor({
           style={{ left: selectionAction.left, top: selectionAction.top }}
           disabled={selectionAction.selection.tooLarge}
           title={selectionAction.selection.tooLarge
-            ? "Select a smaller excerpt (20,000 characters maximum)"
+            ? "Select no more than 200 lines or 20,000 characters"
             : `Quote ${selectionLineLabel(selectionAction.selection)} to Codex`}
           aria-label={selectionAction.selection.tooLarge
             ? "Selection is too large to quote to Codex"

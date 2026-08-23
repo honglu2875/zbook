@@ -1,6 +1,7 @@
 import type { CellKind } from "./notebook";
 
 export const MAX_QUOTED_SELECTION_CHARACTERS = 20_000;
+export const MAX_QUOTED_SELECTION_LINES = 200;
 
 export interface CellTextSelection {
   text: string;
@@ -32,11 +33,16 @@ export function selectionFromSource(
   const to = Math.max(0, Math.min(source.length, Math.max(anchor, head)));
   if (from === to) return null;
   const text = source.slice(from, to);
+  const startLine = lineNumberAt(source, from);
+  const endLine = lineNumberAt(source, Math.max(from, to - 1));
   return {
     text,
-    startLine: lineNumberAt(source, from),
-    endLine: lineNumberAt(source, Math.max(from, to - 1)),
-    tooLarge: text.length > MAX_QUOTED_SELECTION_CHARACTERS,
+    startLine,
+    endLine,
+    tooLarge: (
+      text.length > MAX_QUOTED_SELECTION_CHARACTERS
+      || endLine - startLine + 1 > MAX_QUOTED_SELECTION_LINES
+    ),
   };
 }
 

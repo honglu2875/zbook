@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_QUOTED_SELECTION_CHARACTERS,
+  MAX_QUOTED_SELECTION_LINES,
   selectionFromSource,
   selectionLineLabel,
   selectionPreview,
@@ -40,6 +41,11 @@ describe("selected notebook context", () => {
       0,
       MAX_QUOTED_SELECTION_CHARACTERS + 1,
     )?.tooLarge).toBe(true);
+    const tooManyLines = Array.from(
+      { length: MAX_QUOTED_SELECTION_LINES + 1 },
+      () => "x",
+    ).join("\n");
+    expect(selectionFromSource(tooManyLines, 0, tooManyLines.length)?.tooLarge).toBe(true);
   });
 
   it("creates a compact one-line composer preview without changing the quote", () => {
