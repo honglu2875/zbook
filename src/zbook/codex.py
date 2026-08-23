@@ -27,6 +27,17 @@ class CodexRequestError(RuntimeError):
 DEFAULT_REQUEST_TIMEOUT = 30.0
 CODEX_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
 
+
+def codex_startup_diagnostic(error: Exception) -> CodexUnavailable:
+    """Turn an App Server handshake failure into an actionable local diagnostic."""
+
+    detail = str(error).strip() or error.__class__.__name__
+    return CodexUnavailable(
+        "The installed Codex CLI could not initialize the App Server protocol Zbook requires. "
+        "Run `zbook check`; if its App Server check fails, update Codex CLI and retry. "
+        f"Details: {detail}"
+    )
+
 NOTEBOOK_TOOL_INSTRUCTIONS = r"""You are embedded in Zbook. When reading or changing the open
 notebook, use Zbook's notebook tools instead of editing the .ipynb file with shell commands or
 apply_patch. Start with zbook_notebook_read includeSource false to get the current notebookPath,
@@ -430,9 +441,9 @@ class CodexAppServer:
                 request_timeout=15,
             )
             await self.notify("initialized")
-        except Exception:
+        except Exception as error:
             await self.close()
-            raise
+            raise codex_startup_diagnostic(error) from error
 
     async def request(
         self,

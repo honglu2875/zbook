@@ -77,6 +77,46 @@ def _command_check(
     return RequirementCheck(label, True, f"{version} · {path}", critical)
 
 
+def _codex_check() -> RequirementCheck:
+    hint = (
+        "Install or update Codex CLI and sign in to enable the assistant panel; "
+        "notebooks remain available without it."
+    )
+    command = _command_check("codex", "Codex CLI", critical=False, hint=hint)
+    if not command.available:
+        return command
+
+    path = shutil.which("codex")
+    assert path is not None
+    try:
+        result = subprocess.run(
+            (path, "app-server", "--help"),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return RequirementCheck(
+            "Codex CLI",
+            False,
+            f"{command.detail} · App Server check failed: {error}",
+            False,
+            hint,
+        )
+    if result.returncode:
+        output = result.stderr.strip() or result.stdout.strip()
+        reason = output.splitlines()[0] if output else f"exited with status {result.returncode}"
+        return RequirementCheck(
+            "Codex CLI",
+            False,
+            f"{command.detail} · App Server unavailable: {reason}",
+            False,
+            hint,
+        )
+    return RequirementCheck("Codex CLI", True, f"{command.detail} · App Server available", False)
+
+
 def collect_checks() -> list[RequirementCheck]:
     """Inspect the local runtime without changing it."""
 
@@ -121,17 +161,7 @@ def collect_checks() -> list[RequirementCheck]:
             hint="Install uv and ensure its executable is on PATH.",
         )
     )
-    checks.append(
-        _command_check(
-            "codex",
-            "Codex CLI",
-            critical=False,
-            hint=(
-                "Install and sign in to Codex CLI to enable the assistant panel; "
-                "notebooks remain available without it."
-            ),
-        )
-    )
+    checks.append(_codex_check())
     return checks
 
 

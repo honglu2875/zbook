@@ -7,7 +7,7 @@ from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
-from zbook.cli import RequirementCheck, _preflight_run, main, run_checks
+from zbook.cli import RequirementCheck, _codex_check, _preflight_run, main, run_checks
 
 
 class CliTests(unittest.TestCase):
@@ -251,6 +251,50 @@ class CliTests(unittest.TestCase):
 
         self.assertTrue(ready)
         self.assertIn("WARNING: Codex CLI was not found", stderr.getvalue())
+
+    @patch("zbook.cli.subprocess.run")
+    @patch("zbook.cli.shutil.which", return_value="/usr/bin/codex")
+    def test_codex_check_requires_app_server(
+        self,
+        _which: object,
+        run: object,
+    ) -> None:
+        run.side_effect = [
+            type("Result", (), {"returncode": 0, "stdout": "codex-cli 1.2.3\n", "stderr": ""})(),
+            type(
+                "Result",
+                (),
+                {"returncode": 2, "stdout": "", "stderr": "unknown command app-server\n"},
+            )(),
+        ]
+
+        check = _codex_check()
+
+        self.assertFalse(check.available)
+        self.assertFalse(check.critical)
+        self.assertIn("App Server unavailable", check.detail)
+        self.assertIn("update Codex CLI", check.hint or "")
+
+    @patch("zbook.cli.subprocess.run")
+    @patch("zbook.cli.shutil.which", return_value="/usr/bin/codex")
+    def test_codex_check_reports_supported_app_server(
+        self,
+        _which: object,
+        run: object,
+    ) -> None:
+        run.side_effect = [
+            type("Result", (), {"returncode": 0, "stdout": "codex-cli 1.2.3\n", "stderr": ""})(),
+            type(
+                "Result",
+                (),
+                {"returncode": 0, "stdout": "Usage: codex app-server", "stderr": ""},
+            )(),
+        ]
+
+        check = _codex_check()
+
+        self.assertTrue(check.available)
+        self.assertIn("App Server available", check.detail)
 
 
 if __name__ == "__main__":

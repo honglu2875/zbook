@@ -16,6 +16,7 @@ from zbook.codex import (
     CodexProtocolError,
     CodexRequestError,
     CodexUnavailable,
+    codex_startup_diagnostic,
     encode_message,
 )
 from zbook.codex_handler import (
@@ -37,6 +38,15 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
     def test_rejects_jsonrpc_field(self) -> None:
         with self.assertRaises(CodexProtocolError):
             encode_message({"jsonrpc": "2.0", "method": "initialize"})
+
+    def test_startup_diagnostic_preserves_detail_and_gives_recovery_path(self) -> None:
+        diagnostic = codex_startup_diagnostic(
+            CodexRequestError("unknown field `experimentalApi`")
+        )
+
+        self.assertIn("App Server protocol", str(diagnostic))
+        self.assertIn("zbook check", str(diagnostic))
+        self.assertIn("unknown field", str(diagnostic))
 
     def test_prompt_context_names_notebook_and_selected_cell_without_source(self) -> None:
         prompt = prompt_with_context(

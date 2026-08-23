@@ -746,7 +746,11 @@ body.is-resizing-pane .app-shell { transition: none; }
 .approval-card > div { display: flex; justify-content: flex-end; }
 .approval-card button { border-color: #373b3f; background: #24272a; color: #8b9197; }
 .approval-card button.approval-primary { border-color: #594c39; color: #d2ad70; }
-.codex-problem { width: 100%; padding: 7px 8px; border: 1px solid #4a3435; background: #271f20; color: #c78082; text-align: left; font-size: 9.5px; cursor: pointer; }
+.codex-problem { width: 100%; padding: 8px; border: 1px solid #4a3435; background: #271f20; color: #c78082; font-size: 9.5px; line-height: 1.45; }
+.codex-problem > span { display: block; overflow-wrap: anywhere; }
+.codex-problem > div { display: flex; justify-content: flex-end; gap: 5px; margin-top: 7px; }
+.codex-problem button { padding: 3px 6px; border: 1px solid #584143; border-radius: 3px; background: #302426; color: #d39597; font: inherit; cursor: pointer; }
+.codex-problem button:hover { border-color: #7b5558; background: #38292b; color: #e1aaac; }
 
 .prompt-box { width: calc(100% - 22px); max-width: calc(100% - 22px); min-width: 0; margin: 0 11px 11px; overflow: hidden; border: 1px solid #3a3e42; background: #202326; box-shadow: 0 6px 18px #0002; }
 .prompt-box:focus-within { border-color: #555044; }

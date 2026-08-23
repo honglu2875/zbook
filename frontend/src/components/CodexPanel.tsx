@@ -126,6 +126,7 @@ const EFFORT_STORAGE = "zbook.codex.effort";
 const WEEK_MINUTES = 7 * 24 * 60;
 const THREAD_STORE_VERSION = 1;
 const MAX_STORED_THREADS = 30;
+const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 10_000] as const;
 
 function initialMessages(): Message[] {
   return [{
@@ -318,7 +319,11 @@ export function CodexPanel({
   const [includeContext, setIncludeContext] = useState(true);
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
+  const reconnectAttempt = useRef(0);
+  const reconnectTimer = useRef<number | null>(null);
+  const bridgeReady = useRef(false);
   const activeAssistant = useRef<string | null>(null);
   const agentMessages = useRef(new Map<string, string>());
   const conversation = useRef<HTMLDivElement>(null);
@@ -395,32 +400,45 @@ export function CodexPanel({
       return;
     }
     if (!available) {
+      if (reconnectTimer.current !== null) window.clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+      reconnectAttempt.current = 0;
+      bridgeReady.current = false;
       callbacks.current.onTurnFinished();
       setConnection("error");
       setProblem("Codex CLI was not found on PATH.");
       return;
     }
 
+    let disposed = false;
+    let receivedReady = false;
+    let connectionProblem: string | null = null;
+    bridgeReady.current = false;
     setConnection("connecting");
     setStage("Connecting");
+    setProblem(null);
     const socket = new WebSocket(websocketUrl("api/codex"));
     socketRef.current = socket;
-    socket.onmessage = (event) => handleBridgeMessage(
-      JSON.parse(event.data) as Record<string, unknown>,
-      socket,
-    );
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data) as Record<string, unknown>;
+        if (message.type === "ready") receivedReady = true;
+        if (!receivedReady && message.type === "error") {
+          connectionProblem = String(message.message ?? "The local Codex bridge could not start.");
+        }
+        handleBridgeMessage(message, socket);
+      } catch {
+        setProblem("The local Codex bridge sent an invalid message. Reconnecting may help.");
+      }
+    };
     socket.onerror = () => {
-      callbacks.current.onTurnFinished();
-      setConnection("error");
-      setProblem("The local Codex bridge could not connect.");
       setStage("Disconnected");
-      setBusy(false);
-      setApprovals([]);
     };
     socket.onclose = () => {
-      if (socketRef.current === socket) {
+      if (!disposed && socketRef.current === socket) {
         callbacks.current.onTurnFinished();
         socketRef.current = null;
+        bridgeReady.current = false;
         boundThreadRef.current = null;
         setConnection("error");
         setStage("Disconnected");
@@ -434,15 +452,37 @@ export function CodexPanel({
           activeAssistant.current = null;
         }
         agentMessages.current.clear();
+
+        const attempt = reconnectAttempt.current;
+        const delay = RECONNECT_DELAYS_MS[attempt];
+        if (delay === undefined) {
+          setProblem(`${connectionProblem ?? "The local Codex bridge disconnected."} Automatic retries stopped.`);
+          return;
+        }
+        reconnectAttempt.current += 1;
+        const seconds = delay < 1_000 ? `${delay} ms` : `${delay / 1_000} s`;
+        setProblem(`${connectionProblem ?? "The local Codex bridge disconnected."} Retrying in ${seconds}…`);
+        reconnectTimer.current = window.setTimeout(() => {
+          reconnectTimer.current = null;
+          if (!disposed) setReconnectGeneration((value) => value + 1);
+        }, delay);
       }
     };
     return () => {
+      disposed = true;
+      if (reconnectTimer.current !== null) window.clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
       callbacks.current.onTurnFinished();
       if (socketRef.current === socket) socketRef.current = null;
+      bridgeReady.current = false;
       boundThreadRef.current = null;
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
       socket.close();
     };
-  }, [available]);
+  }, [available, reconnectGeneration]);
 
   useEffect(() => {
     const element = conversation.current;
@@ -803,6 +843,10 @@ export function CodexPanel({
       return;
     }
     if (message.type === "ready") {
+      bridgeReady.current = true;
+      reconnectAttempt.current = 0;
+      if (reconnectTimer.current !== null) window.clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
       const nextAccount = message.account as AccountState;
       setAccount(nextAccount);
       const catalog = Array.isArray(message.models)
@@ -935,6 +979,11 @@ export function CodexPanel({
       setProblem(detail);
       setStage("Failed");
       setAccountRefreshing(false);
+      if (!bridgeReady.current) {
+        setBusy(false);
+        setApprovals([]);
+        return;
+      }
       const assistantId = activeAssistant.current;
       if (assistantId) {
         socketRef.current?.send(JSON.stringify({ type: "interrupt" }));
@@ -1062,6 +1111,17 @@ export function CodexPanel({
   function refreshAccount() {
     setAccountRefreshing(true);
     socketRef.current?.send(JSON.stringify({ type: "refreshAccount" }));
+  }
+
+  function retryConnection() {
+    if (!available) return;
+    reconnectAttempt.current = 0;
+    if (reconnectTimer.current !== null) window.clearTimeout(reconnectTimer.current);
+    reconnectTimer.current = null;
+    setConnection("connecting");
+    setStage("Connecting");
+    setProblem(null);
+    setReconnectGeneration((value) => value + 1);
   }
 
   function logout() {
@@ -1259,7 +1319,17 @@ export function CodexPanel({
             </div>
           </div>
         ))}
-        {problem && <button className="codex-problem" onClick={() => setProblem(null)}>{problem}</button>}
+        {problem && (
+          <div className="codex-problem" role="alert">
+            <span>{problem}</span>
+            <div>
+              {connection === "error" && available && (
+                <button type="button" onClick={retryConnection}>Retry now</button>
+              )}
+              <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss Codex notice">Dismiss</button>
+            </div>
+          </div>
+        )}
       </div>
       <form className="prompt-box" onSubmit={submit}>
         {selectionQuote && (
