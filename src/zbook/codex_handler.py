@@ -32,6 +32,8 @@ _PREFERRED_EFFORT = "medium"
 _ZBOOK_CONTEXT_MARKER = "\n\nZbook context supplied by the user:\n"
 _MAX_ACTIVITY_TEXT = 12_000
 _MAX_DYNAMIC_TOOL_RESPONSE_BYTES = 8 * 1024 * 1024
+_MAX_SELECTION_CONTEXT_CHARACTERS = 20_000
+_MAX_SELECTION_CONTEXT_LINES = 200
 
 
 def choose_default_model(models: list[dict[str, Any]]) -> tuple[str | None, str | None]:
@@ -80,6 +82,46 @@ def prompt_with_context(prompt: str, context: Any) -> str:
     if isinstance(cell_kind, str):
         identity = f" (notebook cell id: {cell_id[:200]})" if isinstance(cell_id, str) else ""
         details.append(f"Selected {cell_kind} cell{identity}.")
+    selection = context.get("selection")
+    if isinstance(selection, dict):
+        selection_text = selection.get("text")
+        if isinstance(selection_text, str) and selection_text:
+            selection_notebook = selection.get("notebookPath")
+            selection_kind = selection.get("cellKind")
+            selection_cell_id = selection.get("cellId")
+            start_line = selection.get("startLine")
+            end_line = selection.get("endLine")
+            valid_line_range = (
+                isinstance(start_line, int)
+                and not isinstance(start_line, bool)
+                and isinstance(end_line, int)
+                and not isinstance(end_line, bool)
+                and start_line >= 1
+                and end_line >= start_line
+            )
+            location = (
+                f"lines {start_line}–{end_line}"
+                if valid_line_range
+                else "selected source"
+            )
+            origin = (
+                f" in {selection_notebook[:4_000]}"
+                if isinstance(selection_notebook, str) and selection_notebook
+                else ""
+            )
+            identity = (
+                f" (notebook cell id: {selection_cell_id[:200]})"
+                if isinstance(selection_cell_id, str)
+                else ""
+            )
+            kind = f" {selection_kind}" if isinstance(selection_kind, str) else ""
+            excerpt = "".join(
+                selection_text.splitlines(keepends=True)[:_MAX_SELECTION_CONTEXT_LINES]
+            )[:_MAX_SELECTION_CONTEXT_CHARACTERS]
+            details.append(
+                f"Selected immutable quote from{kind} {location}{origin}{identity}:\n"
+                f"<zbook_selection>\n{excerpt}\n</zbook_selection>"
+            )
     if not details:
         return value
     return f"{value}{_ZBOOK_CONTEXT_MARKER}" + "\n\n".join(details)

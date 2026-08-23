@@ -82,6 +82,7 @@ function renderProposal(
       onReload={noop}
       onModeChange={noop}
       onStopEdit={noop}
+      onQuoteSelection={noop}
     />,
   );
 }

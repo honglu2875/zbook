@@ -54,6 +54,10 @@ import {
   type NotebookToolContext,
   type NotebookToolResponse,
 } from "./model/notebookTools";
+import type {
+  CellTextSelection,
+  NotebookSelectionQuote,
+} from "./model/selectionContext";
 import {
   createDirectory,
   createNotebook,
@@ -361,6 +365,7 @@ export default function App() {
   const [codexCellLocks, setCodexCellLocks] = useState<Record<string, string[]>>({});
   const [cellProposalsByNotebook, setCellProposalsByNotebook] = useState<CellProposalsByNotebook>({});
   const [codexEditReview, setCodexEditReview] = useState<CodexEditReview | null>(null);
+  const [codexSelectionQuote, setCodexSelectionQuote] = useState<NotebookSelectionQuote | null>(null);
   const [workspaceSessionReady, setWorkspaceSessionReady] = useState(false);
   const [paletteMode, setPaletteMode] = useState<"files" | "commands" | null>(null);
   const [paletteFiles, setPaletteFiles] = useState<PaletteFile[]>([]);
@@ -2064,6 +2069,22 @@ export default function App() {
     });
   }
 
+  function quoteSelectionForCodex(
+    cellId: string,
+    cellKind: CellKind,
+    selection: CellTextSelection,
+  ) {
+    const path = documentRef.current.notebookPath;
+    if (!path || selection.tooLarge) return;
+    setCodexSelectionQuote({
+      ...selection,
+      notebookPath: path,
+      cellId,
+      cellKind,
+    });
+    focusCodexPrompt();
+  }
+
   function toggleCellView(id: string, option: CellViewOption) {
     if (!notebookPath) return;
     const path = notebookPath;
@@ -2817,6 +2838,7 @@ export default function App() {
             onReload={() => void reloadNotebook()}
             onModeChange={setMode}
             onStopEdit={enterCellNavigation}
+            onQuoteSelection={quoteSelectionForCodex}
           />
         ) : (
           <main className="empty-workspace">
@@ -2846,12 +2868,14 @@ export default function App() {
           workspace={status?.config.workspace ?? null}
           notebookPath={notebookPath}
           selectedCell={selectedCellForCodex}
+          selectionQuote={codexSelectionQuote}
           onBeforePrompt={ensureDocumentSaved}
           onWorkspaceChanged={() => void refreshAfterCodexChange()}
           onTurnStarted={startCodexTurn}
           onTurnFinished={finishCodexTurn}
           onNotebookToolCall={handleNotebookToolCall}
           onReturnToNotebook={() => enterCellNavigation(selectedIdRef.current)}
+          onClearSelectionQuote={() => setCodexSelectionQuote(null)}
         />
       )}
       {environmentOpen && status && (

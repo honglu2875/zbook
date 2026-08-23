@@ -8,7 +8,16 @@ import { getCM, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import type { CellKind } from "../model/notebook";
+import {
+  selectionFromSource,
+  type CellTextSelection,
+} from "../model/selectionContext";
 import { zbookTheme } from "../editor/theme";
+
+export interface CellSelectionAction {
+  selection: CellTextSelection;
+  top: number;
+}
 
 interface CellEditorProps {
   kind: CellKind;
@@ -21,6 +30,7 @@ interface CellEditorProps {
   onRun: (advance: boolean, insert: boolean) => void;
   onFocus: () => void;
   onModeChange: (mode: string) => void;
+  onSelectionActionChange: (action: CellSelectionAction | null) => void;
 }
 
 function currentVimMode(editor: EditorView): string {
@@ -41,12 +51,13 @@ export function CellEditor({
   onRun,
   onFocus,
   onModeChange,
+  onSelectionActionChange,
 }: CellEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const synchronizingSource = useRef(false);
-  const callbacks = useRef({ onChange, onRun, onFocus, onModeChange });
-  callbacks.current = { onChange, onRun, onFocus, onModeChange };
+  const callbacks = useRef({ onChange, onRun, onFocus, onModeChange, onSelectionActionChange });
+  callbacks.current = { onChange, onRun, onFocus, onModeChange, onSelectionActionChange };
 
   useEffect(() => {
     if (!host.current) return;
@@ -131,6 +142,29 @@ export function CellEditor({
           if (update.docChanged && !synchronizingSource.current) {
             callbacks.current.onChange(update.state.doc.toString());
           }
+          if (
+            update.selectionSet
+            || update.docChanged
+            || update.focusChanged
+            || update.geometryChanged
+          ) {
+            const range = update.state.selection.main;
+            const selection = update.view.hasFocus
+              ? selectionFromSource(update.state.doc.toString(), range.anchor, range.head)
+              : null;
+            const editorBounds = host.current?.getBoundingClientRect();
+            const cursorBounds = selection
+              ? update.view.coordsAtPos(range.to, -1)
+              : null;
+            if (!selection || !editorBounds || !cursorBounds) {
+              callbacks.current.onSelectionActionChange(null);
+            } else {
+              callbacks.current.onSelectionActionChange({
+                selection,
+                top: Math.max(35, cursorBounds.bottom - editorBounds.top - 9),
+              });
+            }
+          }
         }),
       ],
     });
@@ -140,6 +174,7 @@ export function CellEditor({
     const handleVimModeChange = () => callbacks.current.onModeChange(currentVimMode(editor));
     cm?.on("vim-mode-change", handleVimModeChange);
     return () => {
+      callbacks.current.onSelectionActionChange(null);
       cm?.off("vim-mode-change", handleVimModeChange);
       view.current?.destroy();
       view.current = null;
