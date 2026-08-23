@@ -76,6 +76,16 @@ def seed_workspace(workspace: Path) -> None:
         ),
         "conflict.ipynb": notebook(("conflict-cell", "code", "original_value = 1")),
         "image.ipynb": image_output,
+        "widgets.ipynb": notebook(
+            (
+                "widget-cell",
+                "code",
+                "import ipywidgets as widgets\n"
+                "slider = widgets.IntSlider(value=4, min=0, max=10, description='Live')\n"
+                "slider",
+            ),
+            ("widget-value", "code", "slider.value"),
+        ),
     }
     for name, content in fixtures.items():
         (workspace / name).write_text(json.dumps(content), encoding="utf-8")

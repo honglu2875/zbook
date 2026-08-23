@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -436,6 +437,11 @@ export default function App() {
   openTabsRef.current = openTabs;
   selectedIdRef.current = selectedId;
   cellViewsByNotebookRef.current = cellViewsByNotebook;
+  const renderNotebookWidget = useCallback((modelId: string, element: HTMLElement) => {
+    const path = documentRef.current.notebookPath;
+    if (!path) return Promise.reject(new Error("No notebook is open for this widget."));
+    return kernelPool.client(path).renderWidget(modelId, element);
+  }, [kernelPool]);
 
   useEffect(() => {
     void refreshStatus();
@@ -3074,6 +3080,7 @@ export default function App() {
             onSave={() => void saveFromUser()}
             onExport={exportNotebook}
             onReload={() => void reloadNotebook()}
+            onRenderWidget={renderNotebookWidget}
             onModeChange={setMode}
             onStopEdit={enterCellNavigation}
             onQuoteSelection={quoteSelectionForCodex}

@@ -1,0 +1,90 @@
+.zbook-widget-output {
+  --jp-border-width: 1px;
+  --jp-border-color0: #596066;
+  --jp-border-color1: #454b50;
+  --jp-border-color2: #34393d;
+  --jp-border-color3: #292d30;
+  --jp-layout-color0: #16181a;
+  --jp-layout-color1: #1d2022;
+  --jp-layout-color2: #282c2f;
+  --jp-layout-color3: #353a3e;
+  --jp-ui-font-color0: #e1e3e5;
+  --jp-ui-font-color1: #c2c6c9;
+  --jp-ui-font-color2: #8d949a;
+  --jp-ui-font-color3: #686f75;
+  --jp-ui-inverse-font-color0: #17191b;
+  --jp-ui-inverse-font-color1: #202326;
+  --jp-content-font-color0: #e1e3e5;
+  --jp-content-font-color1: #c2c6c9;
+  --jp-content-font-color2: #8d949a;
+  --jp-content-font-color3: #686f75;
+  --jp-ui-font-family: var(--font-ui);
+  --jp-code-font-family: var(--font-mono);
+  --jp-brand-color0: #d5b274;
+  --jp-brand-color1: #ba9458;
+  --jp-brand-color2: #967748;
+  --jp-brand-color3: #665235;
+  --jp-cell-editor-background: #1d2022;
+  --jp-cell-editor-border-color: #34393d;
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  color: #c2c6c9;
+  scrollbar-color: #4a4d4e #202326;
+  scrollbar-width: thin;
+}
+
+.zbook-widget-output > .widget-output-host {
+  min-width: min-content;
+}
+
+.zbook-widget-output .jupyter-widgets {
+  font-family: var(--font-ui);
+}
+
+.zbook-widget-output .jupyter-matplotlib-figure {
+  max-width: 100%;
+}
+
+.zbook-widget-output .jupyter-matplotlib-canvas-container {
+  max-width: 100%;
+  scrollbar-color: #4a4d4e #202326;
+  scrollbar-width: thin;
+}
+
+/* ipympl emits Font Awesome class names but does not ship the icon font. Keep
+   its small toolbar legible without adding another font payload to Zbook. */
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa {
+  display: inline-grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  color: currentColor;
+  font: 12px/1 var(--font-ui);
+}
+
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa::before {
+  display: block;
+}
+
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa-home::before { content: "⌂"; }
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa-arrow-left::before { content: "←"; }
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa-arrow-right::before { content: "→"; }
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa-arrows::before { content: "✥"; }
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa-square-o::before { content: "□"; }
+.zbook-widget-output .jupyter-matplotlib-toolbar .fa-floppy-o::before { content: "↓"; }
+
+.widget-output-state {
+  min-height: 34px;
+  padding: 8px 9px;
+  border: 1px solid #303438;
+  border-radius: 4px;
+  background: #1b1e20;
+  color: #747b81;
+  font: 10px/1.5 var(--font-ui);
+}
+
+.widget-output-state.is-error {
+  border-color: #4b3537;
+  color: #b47c7f;
+}

@@ -214,3 +214,18 @@ test("toggles a scaled image at native size with a single click", async ({ page 
   await imageFrame.click({ position: { x: 10, y: 10 } });
   await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
 });
+
+test("renders a live Jupyter widget and sends interaction back to Python", async ({ page }) => {
+  await openNotebook(page, "widgets.ipynb");
+  const first = page.locator(".notebook-cell").first();
+  const second = page.locator(".notebook-cell").nth(1);
+
+  await first.getByRole("button", { name: "Run cell" }).click();
+  const handle = first.locator(".noUi-handle").first();
+  await expect(handle).toBeVisible();
+  await handle.focus();
+  await handle.press("ArrowRight");
+
+  await second.getByRole("button", { name: "Run cell" }).click();
+  await expect(second.locator(".cell-output")).toContainText("5");
+});

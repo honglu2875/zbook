@@ -10,6 +10,7 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 - Direct Codex tools for capability discovery, focused notebook reads, source proposals, structural edits, and cell reordering.
 - Selected-line context that appears as a bounded, removable quote in the Codex composer.
 - One independently managed IPython kernel per open notebook.
+- Live core Jupyter widgets and interactive Matplotlib figures through `ipympl`.
 - Dirty-document recovery snapshots and external-write conflict protection.
 - Bounded Codex bridge reconnection with explicit retry controls and App Server compatibility checks in `zbook check`.
 - A lean Chromium Playwright suite covering real editing, execution, persistence, tabs, Markdown navigation, external conflicts, selected context, and responsive panels.

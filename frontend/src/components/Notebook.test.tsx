@@ -81,6 +81,7 @@ function renderProposal(
       onSave={noop}
       onExport={noop}
       onReload={noop}
+      onRenderWidget={async () => noop}
       onModeChange={noop}
       onStopEdit={noop}
       onQuoteSelection={noop}
