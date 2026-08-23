@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
+import { unifiedMergeView } from "@codemirror/merge";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { getCM, vim } from "@replit/codemirror-vim";
@@ -12,6 +13,7 @@ import { zbookTheme } from "../editor/theme";
 interface CellEditorProps {
   kind: CellKind;
   source: string;
+  diffOriginal?: string;
   editing: boolean;
   vimEnabled: boolean;
   readOnly: boolean;
@@ -31,6 +33,7 @@ function currentVimMode(editor: EditorView): string {
 export function CellEditor({
   kind,
   source,
+  diffOriginal,
   editing,
   vimEnabled,
   readOnly,
@@ -112,6 +115,15 @@ export function CellEditor({
         keymap.of([indentWithTab]),
         EditorState.readOnly.of(readOnly),
         EditorView.editable.of(!readOnly),
+        ...(diffOriginal !== undefined ? [unifiedMergeView({
+          original: diffOriginal,
+          highlightChanges: true,
+          gutter: true,
+          syntaxHighlightDeletions: true,
+          allowInlineDiffs: true,
+          mergeControls: false,
+          diffConfig: { scanLimit: 2_000, timeout: 100 },
+        })] : []),
         ...(kind === "code" ? [python()] : kind === "markdown" ? [markdown()] : []),
         zbookTheme,
         EditorView.lineWrapping,
@@ -132,7 +144,7 @@ export function CellEditor({
       view.current?.destroy();
       view.current = null;
     };
-  }, [kind, vimEnabled, readOnly]);
+  }, [kind, vimEnabled, readOnly, diffOriginal]);
 
   useEffect(() => {
     const editor = view.current;

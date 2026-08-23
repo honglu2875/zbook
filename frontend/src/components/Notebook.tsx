@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import type { CellProposal } from "../model/cellProposals";
 import type { CellKind, NotebookCell } from "../model/notebook";
 import { CellEditor } from "./CellEditor";
 import {
@@ -30,6 +31,8 @@ interface NotebookProps {
   canRun: boolean;
   locked: boolean;
   lockedCellIds: string[];
+  proposalActionsDisabled: boolean;
+  cellProposals: Record<string, CellProposal>;
   codexChangedCellIds: string[];
   codexUndoAvailable: boolean;
   cellViews: Record<string, CellViewState>;
@@ -40,6 +43,9 @@ interface NotebookProps {
   onDelete: (id: string) => void;
   onRun: (id: string, advance: boolean, insert: boolean) => void;
   onAddAfter: (id: string, kind: CellKind) => void;
+  onReviewNextProposal: () => void;
+  onApplyProposal: (id: string, runAfter: boolean) => void;
+  onRejectProposal: (id: string) => void;
   onReviewCodexChange: () => void;
   onUndoCodexChange: () => void;
   onToggleCellView: (id: string, option: CellViewOption) => void;
@@ -168,6 +174,8 @@ export function Notebook({
   canRun,
   locked,
   lockedCellIds,
+  proposalActionsDisabled,
+  cellProposals,
   codexChangedCellIds,
   codexUndoAvailable,
   cellViews,
@@ -178,6 +186,9 @@ export function Notebook({
   onDelete,
   onRun,
   onAddAfter,
+  onReviewNextProposal,
+  onApplyProposal,
+  onRejectProposal,
   onReviewCodexChange,
   onUndoCodexChange,
   onToggleCellView,
@@ -195,6 +206,9 @@ export function Notebook({
     saving: "Saving…",
     error: "Save failed",
   }[saveState];
+  const proposals = Object.values(cellProposals);
+  const reviewableProposals = proposals.filter((proposal) => proposal.state !== "streaming");
+  const conflictCount = reviewableProposals.filter((proposal) => proposal.state === "conflict").length;
 
   return (
     <main className="notebook-scroll" aria-busy={locked}>
@@ -208,7 +222,20 @@ export function Notebook({
             <button onClick={onExport} title="Export .ipynb"><DownloadIcon />Export</button>
           </div>
         </div>
-        {codexChangedCellIds.length > 0 && (
+        {proposals.length > 0 ? (
+          <section className="codex-edit-review is-proposal-review" aria-live="polite">
+            <div>
+              <span>✦</span>
+              <strong>{reviewableProposals.length > 0
+                ? `${reviewableProposals.length} proposed cell edit${reviewableProposals.length === 1 ? "" : "s"} await review`
+                : `Codex is drafting ${proposals.length} cell${proposals.length === 1 ? "" : "s"}`}</strong>
+              {conflictCount > 0 && <em>{conflictCount} conflicted</em>}
+            </div>
+            <div>
+              <button type="button" onClick={onReviewNextProposal} disabled={reviewableProposals.length === 0}>Review next</button>
+            </div>
+          </section>
+        ) : codexChangedCellIds.length > 0 && (
           <section className="codex-edit-review" aria-live="polite">
             <div><span>✦</span><strong>Codex changed {codexChangedCellIds.length} cell{codexChangedCellIds.length === 1 ? "" : "s"}</strong></div>
             <div>
@@ -219,19 +246,21 @@ export function Notebook({
         )}
         {cells.map((cell) => {
           const selected = selectedId === cell.id;
-          const editing = editingId === cell.id;
+          const proposal = cellProposals[cell.id];
+          const displaySource = proposal?.draftSource ?? cell.source;
+          const editing = editingId === cell.id && !proposal;
           const changedByCodex = codexChangedCellIds.includes(cell.id);
           const codexLocked = lockedCellIds.includes(cell.id);
-          const cellLocked = locked || codexLocked;
+          const cellLocked = locked || codexLocked || Boolean(proposal);
           const view = cellViews[cell.id] ?? {};
-          const cellTitle = titleFromSource(cell);
-          const titleCollapsed = Boolean(cellTitle && view.cellCollapsed);
+          const cellTitle = titleFromSource({ ...cell, source: displaySource });
+          const titleCollapsed = Boolean(cellTitle && view.cellCollapsed && !proposal);
           const canLimitOutput = cell.outputs.length > 0 && !titleCollapsed;
           return (
             <div className="notebook-cell-group" key={cell.id}>
               <article
                 data-cell-id={cell.id}
-                className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
+                className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${proposal ? "has-codex-proposal" : ""} ${proposal?.state === "streaming" ? "is-proposal-streaming" : ""} ${proposal?.state === "review" ? "is-proposal-review" : ""} ${proposal?.state === "conflict" ? "is-proposal-conflict" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
                 tabIndex={0}
                 onFocus={(event) => {
                   if (event.target === event.currentTarget) onSelect(cell.id);
@@ -245,7 +274,7 @@ export function Notebook({
                   if ((event.target as HTMLElement).closest(".cell-editor")) return;
                   if (!cellLocked) onEdit(cell.id);
                 }}
-                aria-label={`${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}`}
+                aria-label={`${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}${proposal ? ", with a Codex proposal" : ""}`}
               >
                 <div
                   className="cell-rail"
@@ -334,7 +363,7 @@ export function Notebook({
                   {!titleCollapsed && (
                     <>
                       <div className="cell-source">
-                        {cell.kind === "markdown" && !editing ? (
+                        {cell.kind === "markdown" && !editing && !proposal ? (
                           <div
                             className="markdown-rendered"
                             onClick={(event) => {
@@ -347,7 +376,8 @@ export function Notebook({
                         ) : (
                           <CellEditor
                             kind={cell.kind}
-                            source={cell.source}
+                            source={displaySource}
+                            diffOriginal={proposal?.baseSource}
                             editing={editing}
                             vimEnabled={vimEnabled}
                             readOnly={cellLocked}
@@ -364,8 +394,46 @@ export function Notebook({
                           />
                         )}
                       </div>
+                      {proposal && (
+                        <div className="cell-proposal-actions" onClick={(event) => event.stopPropagation()}>
+                          {proposal.state === "streaming" ? (
+                            <span><i />Codex is editing this cell…</span>
+                          ) : (
+                            <>
+                              <span className={proposal.state === "conflict" ? "is-conflict" : ""}>
+                                {proposal.state === "conflict"
+                                  ? "Accepted source changed; replace or reject this proposal"
+                                  : "Review this proposed change"}
+                              </span>
+                              <div>
+                                <button
+                                  type="button"
+                                  className="proposal-apply"
+                                  disabled={proposalActionsDisabled || locked || codexLocked || proposal.state === "conflict"}
+                                  onClick={() => onApplyProposal(cell.id, false)}
+                                >Apply</button>
+                                {cell.kind === "code" && (
+                                  <button
+                                    type="button"
+                                    className="proposal-apply-run"
+                                    disabled={proposalActionsDisabled || locked || codexLocked || proposal.state === "conflict" || !canRun}
+                                    onClick={() => onApplyProposal(cell.id, true)}
+                                  >Apply &amp; Run</button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="proposal-reject"
+                                  disabled={proposalActionsDisabled || locked || codexLocked}
+                                  onClick={() => onRejectProposal(cell.id)}
+                                >Reject</button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
                       {cell.outputs.length > 0 && (
-                        <div className={`cell-output ${view.outputLimited ? "is-height-limited" : ""}`}>
+                        <div className={`cell-output ${proposal ? "is-proposal-stale" : ""} ${view.outputLimited ? "is-height-limited" : ""}`}>
+                          {proposal && <div className="cell-output-context">Output from the accepted source</div>}
                           {cell.outputs.map((output, index) => (
                             <RichOutput key={`${cell.id}-${index}`} cellId={cell.id} index={index} {...output} />
                           ))}

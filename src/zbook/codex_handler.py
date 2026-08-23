@@ -23,6 +23,7 @@ _NOTEBOOK_TOOL_METHOD = "item/tool/call"
 _NOTEBOOK_TOOLS = {
     "zbook_notebook_read",
     "zbook_notebook_lock",
+    "zbook_notebook_propose",
     "zbook_notebook_apply",
 }
 _NOTEBOOK_TOOL_TIMEOUT = 45.0
@@ -152,6 +153,7 @@ def _activity_text(item: dict[str, Any]) -> str:
         tool = item.get("tool") if isinstance(item.get("tool"), str) else ""
         start = {
             "zbook_notebook_lock": "Updating turn-scoped cell locks…\n",
+            "zbook_notebook_propose": "Staging a cell proposal through Zbook…\n",
             "zbook_notebook_apply": "Applying cell changes through Zbook…\n",
             "zbook_notebook_read": "Reading cells through Zbook…\n",
         }.get(tool)

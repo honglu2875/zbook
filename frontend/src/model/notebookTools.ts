@@ -2,7 +2,14 @@ import { newCell, type CellKind, type NotebookCell } from "./notebook";
 
 export const NOTEBOOK_READ_TOOL = "zbook_notebook_read";
 export const NOTEBOOK_LOCK_TOOL = "zbook_notebook_lock";
+export const NOTEBOOK_PROPOSE_TOOL = "zbook_notebook_propose";
 export const NOTEBOOK_APPLY_TOOL = "zbook_notebook_apply";
+
+export interface NotebookToolContext {
+  callId: string | null;
+  threadId: string | null;
+  turnId: string | null;
+}
 
 export interface NotebookToolResponse {
   success: boolean;

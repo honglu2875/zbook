@@ -71,6 +71,14 @@ Vim bindings are opt-in and can be toggled from the status bar on the lower left
 
 The keybindings are not customizable so far, but if I get other users at all, we can consider making it customizable.
 
+## Reviewing Codex cell edits
+
+Codex source edits are proposals, not immediate notebook writes. Zbook asks Codex to lock the relevant cells, then streams small source hunks into a read-only diff: removed lines are red and inserted lines are green. The accepted cell source and its existing output remain untouched while the turn is running.
+
+When the turn finishes, each changed cell offers **Apply**, **Apply & Run** (for code cells), and **Reject** above its output. The notebook banner reports how many proposals remain and **Review next** moves through them in notebook order. Applying saves the proposed source atomically; rejecting restores the unchanged accepted view. Unresolved proposals survive a browser or app restart in the browser's IndexedDB. If the notebook changed on disk in the meantime, Zbook marks the proposal as conflicted instead of applying it over newer work.
+
+Cell insertion, deletion, type changes, and reordering still use the atomic structural notebook tool and save immediately. Those operations retain the existing review/undo banner.
+
 ## Development
 
 Development requires Python 3.11 or newer, uv, and Node.js 20.19 or newer. Codex CLI is only needed when testing the assistant integration.
@@ -113,7 +121,7 @@ React + CodeMirror 6
   ├─ Jupyter Contents / Kernel WebSocket APIs
   ├─ Zbook package-management API ── uv ── selected .venv
   └─ Zbook Codex WebSocket ── codex app-server (stdio JSONL)
-       └─ dynamic cell tools ── revision-locked React notebook state
+       └─ dynamic cell tools ── locks + persistent reviewable proposal overlays
 
 Jupyter Server ExtensionApp
   ├─ file boundary: configured workspace

@@ -30,16 +30,28 @@ apply_patch. Read immediately before editing and pass its notebookPath and docum
 expectedRevision. If the user's request requires modifying existing cells, identify the relevant
 cells on the first read and immediately lock the likely set with zbook_notebook_lock before further
 investigation, reasoning, or tool actions; expand the locked set later if needed. Keep those locks
-while you read, reason, edit, check, and revise across the turn; unlock cells early only when they
-are no longer relevant. Locks do not change documentRevision.
-All remaining locks release automatically when the turn ends. If an operation reports a conflict,
-read again before retrying. If you are unsure which notebook actions are currently available, call
-zbook_notebook_read: its availableActions field is the authoritative live tool inventory. If an
-apply call reports cells_not_locked, immediately call the exact tool and arguments returned in
-nextAction; never ask the user to lock cells in the UI.
+while you read, reason, stage edits, check, and revise across the turn; unlock cells early only when
+they are no longer relevant. Locks do not change documentRevision and release automatically when
+the turn ends.
+
+For source edits to existing cells, never use replace_source in zbook_notebook_apply. Instead call
+zbook_notebook_propose once per small coherent hunk so the user sees the diff develop live. Each
+stage_hunk call must describe the exact current oldLines and replacement newLines, use the latest
+proposalRevision returned by the prior call, and contain only one logical edit. A proposal is not
+saved into the notebook until the user chooses Apply or Apply & Run in Zbook; you cannot accept a
+proposal on the user's behalf. If a read reports a proposal from an earlier turn, lock the cell and
+either replace the complete proposal with replace_proposal or remove it with discard_proposal;
+do not layer stage_hunk calls over an earlier-turn proposal. If you need to reread while building a
+proposal in the current turn, its source is the current draft and pendingChange contains the diff.
+
+If an operation reports a conflict, read again before retrying. If you are unsure which notebook
+actions are currently available, call zbook_notebook_read: its availableActions field is the
+authoritative live tool inventory. If a call reports cells_not_locked, immediately call the exact
+tool and arguments returned in nextAction; never ask the user to lock cells in the UI.
 For a reorder-only task, read with includeSource false, lock the cells whose positions matter,
-then use move_after or swap operations in zbook_notebook_apply without resending source. Shell
-tools remain appropriate for non-notebook workspace files."""
+then use move_after or swap operations in zbook_notebook_apply without resending source. Structural
+operations remain atomic and saved immediately. Shell tools remain appropriate for non-notebook
+workspace files."""
 
 NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
     {
@@ -99,15 +111,109 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "zbook_notebook_propose",
+        "description": (
+            "Stage a source-code proposal in a locked existing cell without changing or saving "
+            "the accepted notebook. For a clean cell, call stage_hunk once per small coherent "
+            "edit and use the proposalRevision returned by each call in the next call. Each hunk "
+            "atomically replaces exact whole oldLines beginning at the one-based startLine with "
+            "newLines; pure insertions use an empty oldLines array and deletions use an empty "
+            "newLines array. If a cell already has a proposal from an earlier turn, use "
+            "replace_proposal with the complete desired source or discard_proposal. Only the user "
+            "can Apply, Apply & Run, or Reject the resulting proposal."
+        ),
+        "inputSchema": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "notebookPath",
+                        "expectedRevision",
+                        "cellId",
+                        "expectedProposalRevision",
+                        "action",
+                        "startLine",
+                        "oldLines",
+                        "newLines",
+                    ],
+                    "properties": {
+                        "notebookPath": {"type": "string"},
+                        "expectedRevision": {"type": "integer", "minimum": 0},
+                        "cellId": {"type": "string"},
+                        "expectedProposalRevision": {"type": "integer", "minimum": 0},
+                        "action": {"const": "stage_hunk"},
+                        "startLine": {"type": "integer", "minimum": 1},
+                        "oldLines": {
+                            "type": "array",
+                            "maxItems": 400,
+                            "description": (
+                                "Exact current lines to remove, without newline characters."
+                            ),
+                            "items": {"type": "string", "pattern": "^[^\\r\\n]*$"},
+                        },
+                        "newLines": {
+                            "type": "array",
+                            "maxItems": 400,
+                            "description": (
+                                "Replacement lines to insert, without newline characters."
+                            ),
+                            "items": {"type": "string", "pattern": "^[^\\r\\n]*$"},
+                        },
+                    },
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "notebookPath",
+                        "expectedRevision",
+                        "cellId",
+                        "expectedProposalRevision",
+                        "action",
+                        "source",
+                    ],
+                    "properties": {
+                        "notebookPath": {"type": "string"},
+                        "expectedRevision": {"type": "integer", "minimum": 0},
+                        "cellId": {"type": "string"},
+                        "expectedProposalRevision": {"type": "integer", "minimum": 0},
+                        "action": {"const": "replace_proposal"},
+                        "source": {"type": "string"},
+                    },
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "notebookPath",
+                        "expectedRevision",
+                        "cellId",
+                        "expectedProposalRevision",
+                        "action",
+                    ],
+                    "properties": {
+                        "notebookPath": {"type": "string"},
+                        "expectedRevision": {"type": "integer", "minimum": 0},
+                        "cellId": {"type": "string"},
+                        "expectedProposalRevision": {"type": "integer", "minimum": 0},
+                        "action": {"const": "discard_proposal"},
+                    },
+                },
+            ]
+        },
+    },
+    {
+        "type": "function",
         "name": "zbook_notebook_apply",
         "description": (
-            "Atomically edit cells in the open Zbook notebook and save the result. Always call "
-            "zbook_notebook_read first, lock every existing cell that the operations will change "
-            "with zbook_notebook_lock, then pass the exact notebookPath and documentRevision. Use "
-            "this instead of shell commands or apply_patch for .ipynb edits. Operations run in "
-            "order and the whole batch is rejected on missing locks, invalid input, or a "
-            "concurrent UI change. A missing-lock rejection returns the exact lock nextAction to "
-            "call. Insert-only operations do not require a pre-existing lock."
+            "Atomically apply structural notebook operations and save the result. Existing-cell "
+            "source edits must use zbook_notebook_propose so the user can review them before they "
+            "are saved. Always read first, lock every existing cell affected by a structural "
+            "operation, and pass the exact notebookPath and documentRevision. Operations run in "
+            "order and the whole batch is rejected on missing locks, a pending cell proposal, "
+            "invalid input, or a concurrent UI change. replace_source remains in the schema only "
+            "to give older threads a structured migration error and must not be used."
         ),
         "inputSchema": {
             "type": "object",

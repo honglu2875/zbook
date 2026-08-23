@@ -4,6 +4,8 @@ import type { NotebookCell } from "../model/notebook";
 import {
   NOTEBOOK_APPLY_TOOL,
   NOTEBOOK_LOCK_TOOL,
+  NOTEBOOK_PROPOSE_TOOL,
+  type NotebookToolContext,
   type NotebookToolResponse,
 } from "../model/notebookTools";
 import { websocketUrl } from "../services/http";
@@ -93,8 +95,13 @@ interface CodexPanelProps {
   selectedCell: NotebookCell | null;
   onBeforePrompt: () => Promise<boolean>;
   onWorkspaceChanged: () => void;
+  onTurnStarted: () => void;
   onTurnFinished: () => void;
-  onNotebookToolCall: (tool: string, argumentsValue: unknown) => Promise<NotebookToolResponse>;
+  onNotebookToolCall: (
+    tool: string,
+    argumentsValue: unknown,
+    context: NotebookToolContext,
+  ) => Promise<NotebookToolResponse>;
   onReturnToNotebook: () => void;
 }
 
@@ -274,6 +281,7 @@ export function CodexPanel({
   selectedCell,
   onBeforePrompt,
   onWorkspaceChanged,
+  onTurnStarted,
   onTurnFinished,
   onNotebookToolCall,
   onReturnToNotebook,
@@ -317,8 +325,8 @@ export function CodexPanel({
   const threadPopover = useRef<HTMLElement>(null);
   const accountToggle = useRef<HTMLButtonElement>(null);
   const accountPopover = useRef<HTMLElement>(null);
-  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onTurnFinished, onNotebookToolCall });
-  callbacks.current = { onBeforePrompt, onWorkspaceChanged, onTurnFinished, onNotebookToolCall };
+  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onTurnStarted, onTurnFinished, onNotebookToolCall });
+  callbacks.current = { onBeforePrompt, onWorkspaceChanged, onTurnStarted, onTurnFinished, onNotebookToolCall };
   activeThreadRef.current = threadStore.activeId;
 
   useEffect(() => {
@@ -741,12 +749,15 @@ export function CodexPanel({
     }
     const activityId = `notebook-tool-${String(message.callId ?? requestId)}`;
     const locking = tool === NOTEBOOK_LOCK_TOOL;
+    const proposing = tool === NOTEBOOK_PROPOSE_TOOL;
     const editing = tool === NOTEBOOK_APPLY_TOOL;
-    setStage(locking ? "Protecting cells" : editing ? "Editing notebook" : "Reading notebook");
+    setStage(locking ? "Protecting cells" : proposing ? "Drafting cell" : editing ? "Editing notebook" : "Reading notebook");
     appendActivity(
       activityId,
       locking
         ? "Updating turn-scoped cell locks…\n"
+        : proposing
+          ? "Staging a cell proposal through Zbook…\n"
         : editing
           ? "Applying cell changes through Zbook…\n"
           : "Reading cells through Zbook…\n",
@@ -754,7 +765,11 @@ export function CodexPanel({
 
     let response: NotebookToolResponse;
     try {
-      response = await callbacks.current.onNotebookToolCall(tool, message.arguments);
+      response = await callbacks.current.onNotebookToolCall(tool, message.arguments, {
+        callId: typeof message.callId === "string" ? message.callId : null,
+        threadId: typeof message.threadId === "string" ? message.threadId : null,
+        turnId: typeof message.turnId === "string" ? message.turnId : null,
+      });
     } catch (error) {
       response = { success: false, result: { error: String(error) } };
     }
@@ -942,6 +957,7 @@ export function CodexPanel({
       setStage("Ready");
       return;
     }
+    callbacks.current.onTurnStarted();
     const assistantId = crypto.randomUUID();
     if (!activeThreadRef.current) pendingThreadTitle.current = titleFromPrompt(clean);
     else upsertThread(activeThreadRef.current);

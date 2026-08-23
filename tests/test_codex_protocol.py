@@ -106,6 +106,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "zbook_notebook_read",
                     "zbook_notebook_lock",
+                    "zbook_notebook_propose",
                     "zbook_notebook_apply",
                 },
             )
@@ -120,6 +121,22 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(lock_schema["properties"]["action"]["enum"], ["lock", "unlock"])
         self.assertTrue(lock_schema["properties"]["cellIds"]["uniqueItems"])
         self.assertEqual(lock_schema["properties"]["cellIds"]["maxItems"], 100)
+
+        proposal_schemas = tools["zbook_notebook_propose"]["inputSchema"]["oneOf"]
+        proposal_actions = {
+            schema["properties"]["action"]["const"] for schema in proposal_schemas
+        }
+        self.assertEqual(
+            proposal_actions,
+            {"stage_hunk", "replace_proposal", "discard_proposal"},
+        )
+        hunk_schema = next(
+            schema
+            for schema in proposal_schemas
+            if schema["properties"]["action"]["const"] == "stage_hunk"
+        )
+        self.assertEqual(hunk_schema["properties"]["startLine"]["minimum"], 1)
+        self.assertEqual(hunk_schema["properties"]["oldLines"]["maxItems"], 400)
 
         operation_schemas = tools["zbook_notebook_apply"]["inputSchema"]["properties"][
             "operations"
@@ -136,7 +153,9 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("release automatically", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("availableActions", NOTEBOOK_TOOL_INSTRUCTIONS)
-        self.assertIn("exact tool and arguments returned in", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("arguments returned in nextAction", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("once per small coherent hunk", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("proposal on the user's behalf", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("capability-discovery endpoint", tools["zbook_notebook_read"]["description"])
 
     async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:
@@ -198,6 +217,13 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
                                 "success": True,
                             },
                             {
+                                "id": "tool-2",
+                                "type": "dynamicToolCall",
+                                "tool": "zbook_notebook_propose",
+                                "status": "completed",
+                                "success": True,
+                            },
+                            {
                                 "id": "agent-1",
                                 "type": "agentMessage",
                                 "text": "Here is the explanation.",
@@ -226,6 +252,14 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
                     "id": "activity-tool-1",
                     "role": "activity",
                     "text": "Reading cells through Zbook…\n✓ Zbook notebook tool completed\n",
+                },
+                {
+                    "id": "activity-tool-2",
+                    "role": "activity",
+                    "text": (
+                        "Staging a cell proposal through Zbook…\n"
+                        "✓ Zbook notebook tool completed\n"
+                    ),
                 },
                 {
                     "id": "agent-1",
