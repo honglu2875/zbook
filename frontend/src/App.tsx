@@ -81,6 +81,7 @@ import {
   type ExecutionResult,
   type KernelState,
 } from "./services/kernel";
+import { NotebookKernelPool } from "./services/kernelPool";
 
 interface ServerStatus {
   ok: boolean;
@@ -358,7 +359,7 @@ export default function App() {
   const [treeDirectory, setTreeDirectory] = useState("");
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set([""]));
   const [saveState, setSaveState] = useState<SaveState>("saved");
-  const [kernelState, setKernelState] = useState<KernelState>("disconnected");
+  const [, setKernelVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notebookToolLocked, setNotebookToolLocked] = useState(false);
   const [codexTurnActive, setCodexTurnActive] = useState(false);
@@ -390,8 +391,15 @@ export default function App() {
   const pendingCellDeleteRef = useRef<PendingCellDelete | null>(null);
   const vimKeymapRef = useRef<HTMLDivElement | null>(null);
   const restoredWorkspace = useRef<string | null>(null);
-  const kernelClient = useRef<KernelClient | null>(null);
-  if (kernelClient.current === null) kernelClient.current = new KernelClient(setKernelState);
+  const kernelPoolRef = useRef<NotebookKernelPool | null>(null);
+  if (kernelPoolRef.current === null) {
+    kernelPoolRef.current = new NotebookKernelPool(
+      () => setKernelVersion((value) => value + 1),
+      (onState) => new KernelClient(onState),
+    );
+  }
+  const kernelPool = kernelPoolRef.current;
+  const kernelState: KernelState = kernelPool.state(notebookPath);
   const documentRef = useRef({ cells, metadata, notebookPath, saveState });
   documentRef.current = { cells, metadata, notebookPath, saveState };
   directoriesRef.current = directories;
@@ -502,7 +510,7 @@ export default function App() {
   }, [vimKeymapOpen]);
 
   useEffect(() => () => {
-    void kernelClient.current?.shutdown();
+    void kernelPool.shutdownAll();
     if (pendingCellDeleteRef.current) window.clearTimeout(pendingCellDeleteRef.current.timer);
     document.body.classList.remove("is-resizing-pane");
   }, []);
@@ -732,7 +740,7 @@ export default function App() {
   }
 
   async function changeEnvironment(path: string) {
-    await kernelClient.current?.shutdown();
+    await kernelPool.shutdownAll();
     await selectEnvironment(path);
     await refreshStatus();
   }
@@ -1304,7 +1312,8 @@ export default function App() {
     if (notebookToolLockedRef.current) {
       return { success: false, result: { error: "Another notebook tool call is still running." } };
     }
-    if (kernelClient.current?.currentState === "busy" || kernelClient.current?.currentState === "starting") {
+    const activeKernel = kernelPool.state(current.notebookPath);
+    if (activeKernel === "busy" || activeKernel === "starting") {
       return { success: false, result: { error: "Wait for the running cell to finish before locking or editing it." } };
     }
     if (typeof args.notebookPath !== "string" || args.notebookPath !== current.notebookPath) {
@@ -1742,7 +1751,7 @@ export default function App() {
       setNotice("Wait for the Codex cell change to finish before switching notebooks.");
       return true;
     }
-    const state = kernelClient.current?.currentState;
+    const state = kernelPool.state(documentRef.current.notebookPath);
     if (state !== "busy" && state !== "starting") return false;
     setNotice("Interrupt the running cell before switching notebooks.");
     return true;
@@ -1801,6 +1810,7 @@ export default function App() {
     if (!tabs.includes(path)) return;
     if (path !== documentRef.current.notebookPath) {
       setOpenTabs(tabs.filter((tab) => tab !== path));
+      await kernelPool.shutdown(path);
       return;
     }
     if (notebookTransitionBlocked()) return;
@@ -1812,6 +1822,7 @@ export default function App() {
     if (nextPath && !(await loadNotebookDocument(nextPath, false))) return;
     if (!nextPath) resetNotebookDocument();
     setOpenTabs(remaining);
+    await kernelPool.shutdown(path);
   }
 
   async function newNotebook() {
@@ -1898,6 +1909,7 @@ export default function App() {
     try {
       if (containsActive && !(await ensureDocumentSaved())) return;
       await renameEntry(entryPath, newPath);
+      kernelPool.remapUnder(entryPath, newPath);
       remapCellProposals(entryPath, newPath);
       if (activePath && containsActive) {
         const nextActivePath = `${newPath}${activePath.slice(entryPath.length)}`;
@@ -1949,7 +1961,7 @@ export default function App() {
 
   function beginTabRename(path: string) {
     if (busy || notebookToolLockedRef.current) return;
-    const state = kernelClient.current?.currentState;
+    const state = kernelPool.state(documentRef.current.notebookPath);
     if (state === "busy" || state === "starting") {
       setNotice("Interrupt the running cell before renaming a notebook.");
       return;
@@ -1992,6 +2004,7 @@ export default function App() {
       : null;
     try {
       if (containsActive && !(await ensureDocumentSaved())) return;
+      await kernelPool.shutdownUnder(entry.path);
       await deleteEntry(entry.path);
       removeCellProposalsUnder(entry.path);
       selectedByNotebook.current = Object.fromEntries(
@@ -2255,7 +2268,7 @@ export default function App() {
       return;
     }
     if (notebookToolLockedRef.current) return;
-    const kernel = kernelClient.current?.currentState;
+    const kernel = kernelPool.state(path);
     if (runAfter && (kernel === "busy" || kernel === "starting")) {
       setNotice("Wait for the running cell to finish before applying and running this proposal.");
       return;
@@ -2426,7 +2439,7 @@ export default function App() {
       return false;
     }
     if (cellMutationBlocked(id)) return false;
-    const client = kernelClient.current;
+    const client = notebookPath ? kernelPool.client(notebookPath) : null;
     const cell = documentRef.current.cells.find((item) => item.id === id);
     if (!cell) return false;
     if (cell.kind !== "code") {
@@ -2482,9 +2495,33 @@ export default function App() {
 
   async function interruptKernel() {
     try {
-      await kernelClient.current?.interrupt();
+      const path = documentRef.current.notebookPath;
+      if (path) await kernelPool.client(path).interrupt();
     } catch (error) {
       setNotice(`Could not interrupt the kernel: ${String(error)}`);
+    }
+  }
+
+  async function restartKernel() {
+    const path = documentRef.current.notebookPath;
+    if (!path || !status?.kernel.ready || notebookToolLockedRef.current || codexTurnActiveRef.current) return;
+    const state = kernelPool.state(path);
+    if (state === "busy" || state === "starting") {
+      setNotice("Interrupt the running cell before restarting its kernel.");
+      return;
+    }
+    if (state === "idle" && !window.confirm(`Restart the kernel for ${basename(path)}? All variables will be cleared.`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await kernelPool.shutdown(path);
+      await kernelPool.client(path).start(path);
+      setNotice(`${state === "disconnected" || state === "dead" || state === "error" ? "Started" : "Restarted"} the kernel for ${basename(path)}.`);
+    } catch (error) {
+      setNotice(`Could not restart the kernel: ${String(error)}`);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -2609,6 +2646,15 @@ export default function App() {
       detail: "Execute code cells from top to bottom",
       disabled: !notebookPath || !status?.kernel.ready || kernelState === "busy",
       run: () => void runAll(),
+    },
+    {
+      id: "kernel.restart",
+      label: kernelState === "disconnected" || kernelState === "dead" || kernelState === "error"
+        ? "Start notebook kernel"
+        : "Restart notebook kernel",
+      detail: notebookPath ? `Kernel isolated to ${basename(notebookPath)}` : "No notebook open",
+      disabled: !notebookPath || !status?.kernel.ready || notebookToolLocked || codexTurnActive || kernelState === "busy" || kernelState === "starting",
+      run: () => void restartKernel(),
     },
     {
       id: "workspace.refresh",
@@ -2959,7 +3005,15 @@ export default function App() {
         <div className="status-spacer" />
         <span>{status?.config.environment_mode === "project" ? "uv project" : "uv environment"}</span>
         <span>{environmentName}</span>
-        <span>kernel: {kernelState}</span>
+        <button
+          type="button"
+          className="kernel-status"
+          disabled={!notebookPath || !status?.kernel.ready || notebookToolLocked || codexTurnActive || kernelState === "busy" || kernelState === "starting"}
+          onClick={() => void restartKernel()}
+          title={kernelState === "disconnected" || kernelState === "dead" || kernelState === "error"
+            ? "Start the kernel isolated to this notebook"
+            : "Restart the kernel isolated to this notebook"}
+        >kernel: {kernelState}</button>
         <span>{notebookPath ?? "No notebook"}</span>
       </footer>
       {busy && <div className="busy-indicator" role="status" aria-live="polite"><i />Working…</div>}
