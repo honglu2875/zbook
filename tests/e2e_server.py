@@ -59,7 +59,7 @@ def seed_workspace(workspace: Path) -> None:
     image_cell["outputs"] = [{
         "output_type": "display_data",
         "data": {
-            "image/png": solid_png(1_200, 80),
+            "image/png": solid_png(1_200, 900),
             "text/plain": "<wide test image>",
         },
         "metadata": {},

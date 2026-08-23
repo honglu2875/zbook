@@ -511,7 +511,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .cell-output pre.is-error { color: var(--red); }
 .output-image-frame { display: block; width: 100%; max-width: 100%; overflow: hidden; outline: 0; }
 .output-image-frame.is-scaled { cursor: zoom-in; }
-.output-image-frame.is-native-size { max-height: min(70vh, 720px); overflow: auto; cursor: zoom-out; overscroll-behavior: contain; scrollbar-color: #4a4d4e #202326; scrollbar-width: thin; }
+.output-image-frame.is-native-size { max-height: none; overflow-x: auto; overflow-y: hidden; cursor: zoom-out; overscroll-behavior-x: contain; overscroll-behavior-y: auto; scrollbar-color: #4a4d4e #202326; scrollbar-width: thin; }
 .output-image-frame:focus-visible { box-shadow: inset 0 0 0 1px #8f754b; }
 .output-image { display: block; width: auto; height: auto; max-width: 100%; max-height: 620px; object-fit: contain; }
 .output-image-frame.is-native-size .output-image { max-width: none; max-height: none; }

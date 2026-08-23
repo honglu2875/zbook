@@ -195,13 +195,21 @@ test("toggles a scaled image at native size with a single click", async ({ page 
 
   const imageFrame = page.locator(".output-image-frame");
   await expect(imageFrame).toBeVisible();
-  await expect(imageFrame).toHaveAttribute("aria-label", /Click to view the image at 1200 × 80/);
+  await expect(imageFrame).toHaveAttribute("aria-label", /Click to view the image at 1200 × 900/);
   await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
 
   await imageFrame.click();
   await expect(imageFrame).toHaveAttribute("aria-pressed", "true");
   await expect(imageFrame).toHaveAttribute("aria-label", "Click to fit the image to the output");
   expect(await imageFrame.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await imageFrame.evaluate((element) => element.scrollHeight === element.clientHeight)).toBe(true);
+
+  const notebookScroll = page.locator(".notebook-scroll");
+  const scrollBeforeWheel = await notebookScroll.evaluate((element) => element.scrollTop);
+  await imageFrame.hover({ position: { x: 20, y: 100 } });
+  await page.mouse.wheel(0, 300);
+  await expect.poll(() => notebookScroll.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(scrollBeforeWheel);
 
   await imageFrame.click({ position: { x: 10, y: 10 } });
   await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
