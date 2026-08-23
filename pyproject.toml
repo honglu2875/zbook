@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zbook"
-version = "0.1.0"
+version = "0.1.1"
 description = "A small, keyboard-first notebook with uv and Codex integration"
 readme = "README.md"
 requires-python = ">=3.11"
