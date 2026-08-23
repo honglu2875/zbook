@@ -29,6 +29,7 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 - Codex send and stop controls are optically centered, typographic chrome symbols use a consistent SVG grid, and the browser tab and title bar share one pixel-centered Zbook mark.
 - The new-notebook tab control is borderless at rest and shares the tab-close hover treatment.
 - Narrow notebook layouts keep document status controls separate from the title and preserve the full execution-count gutter.
+- Inline code in rendered Markdown headings scales with its surrounding heading instead of retaining body-code size.
 - Invalid `execution_count` properties are removed from `display_data` outputs before saving.
 - Immediate workspace navigation and pane toggles are no longer overwritten by delayed session restoration.
 - Unsaved edits are not silently written over a notebook that changed on disk.

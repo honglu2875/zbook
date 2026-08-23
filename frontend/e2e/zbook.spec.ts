@@ -63,10 +63,18 @@ test("Shift+Enter renders markdown and advances to the next cell", async ({ page
   const editor = first.locator(".cm-content");
   await editor.click();
   await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.insertText("## Updated heading");
+  await page.keyboard.insertText("## Updated `heading`");
   await page.keyboard.press("Shift+Enter");
 
   await expect(first.locator(".markdown-rendered")).toContainText("Updated heading");
+  const heading = first.locator(".markdown-rendered h2");
+  const inlineCode = heading.locator("code");
+  await expect(inlineCode).toHaveText("heading");
+  const fontSizes = await heading.evaluate((element) => ({
+    heading: Number.parseFloat(getComputedStyle(element).fontSize),
+    code: Number.parseFloat(getComputedStyle(element.querySelector("code")!).fontSize),
+  }));
+  expect(fontSizes.code / fontSizes.heading).toBeGreaterThanOrEqual(.84);
   await expect(second).toHaveClass(/is-selected/);
 });
 
