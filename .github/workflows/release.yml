@@ -54,10 +54,11 @@ jobs:
       - name: Test Python
         run: uv run pytest -q
 
-      - name: Build web client
+      - name: Test and build web client
         working-directory: frontend
         run: |
           npm ci
+          npm test
           npm run build
 
       - name: Verify committed web client

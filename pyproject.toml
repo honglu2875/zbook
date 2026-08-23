@@ -5,20 +5,23 @@ build-backend = "hatchling.build"
 [project]
 name = "zbook"
 version = "0.1.1"
-description = "A small, keyboard-first notebook with uv and Codex integration"
+description = "A fast, keyboard-first Jupyter notebook with uv and Codex CLI integration"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "honglu2875" }]
-keywords = ["jupyter", "notebook", "ipython", "uv", "codex"]
+keywords = ["jupyter", "notebook", "ipython", "uv", "codex", "ai"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Environment :: Web Environment",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
@@ -31,6 +34,8 @@ dependencies = [
 Homepage = "https://github.com/honglu2875/zbook"
 Repository = "https://github.com/honglu2875/zbook"
 Issues = "https://github.com/honglu2875/zbook/issues"
+Changelog = "https://github.com/honglu2875/zbook/blob/main/CHANGELOG.md"
+Support = "https://github.com/honglu2875/zbook/blob/main/SUPPORT.md"
 
 [project.scripts]
 zbook = "zbook.cli:main"
