@@ -628,7 +628,7 @@ body.is-resizing-pane .app-shell { transition: none; }
   grid-area: codex;
   position: relative;
   display: grid;
-  grid-template-rows: 36px 32px minmax(0, 1fr) auto;
+  grid-template-rows: 36px 32px minmax(0, 1fr) auto auto;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -734,6 +734,11 @@ body.is-resizing-pane .app-shell { transition: none; }
 .message-activity > span { margin-bottom: 4px; color: #5e656b; }
 .message-activity pre { max-height: 120px; overflow: auto; color: #737a80; font-size: 9.5px; }
 .codex-thinking { display: block; width: 17px; height: 8px; background: radial-gradient(circle, #a98b5d 1.5px, transparent 2px) 0 50%/6px 6px repeat-x; animation: thinking 900ms ease-in-out infinite alternate; }
+.codex-working-indicator { display: flex; align-items: center; min-width: 0; min-height: 26px; gap: 8px; padding: 0 12px; border-top: 1px solid #282c2f; background: #191b1d; color: #756f65; font: 9.5px var(--font-mono); }
+.codex-working-indicator strong { display: inline-flex; flex: 0 0 auto; color: #9b825a; font-weight: 500; }
+.codex-working-indicator em { margin-left: auto; overflow: hidden; color: #686f75; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.codex-working-dots { display: inline-block; width: 3ch; }
+.codex-working-dots::after { display: block; width: 0; overflow: hidden; content: "..."; animation: codex-dots 900ms steps(3, end) infinite alternate; }
 .suggestions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
 .suggestions button { padding: 5px 7px; border: 1px solid #33373a; border-radius: 2px; background: #202326; color: #83898f; font-size: 10px; cursor: pointer; }
 .suggestions button:hover { border-color: #4a4740; color: #c4c7ca; }
@@ -773,7 +778,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .prompt-actions > span.is-busy { color: #9b825a; }
 .context-button { padding: 0; border: 0; background: transparent; color: #747b81; font: 9.5px var(--font-mono); cursor: pointer; }
 .context-button.is-active { color: #c2a36f; }
-.send-button { display: grid; place-items: center; width: 21px; height: 21px; margin-left: 8px; border: 0; border-radius: 2px; background: #c19b5d; color: #1e2022; font: 15px/1 var(--font-ui); cursor: pointer; }
+.send-button { display: grid; place-items: center; width: 21px; height: 21px; margin-left: 8px; padding: 0; border: 0; border-radius: 2px; background: #c19b5d; color: #1e2022; font: 15px/1 var(--font-ui); cursor: pointer; }
 .send-button:disabled { background: #35393c; color: #676d72; cursor: default; }
 .send-button.stop-codex { background: #483536; color: #d79a9b; }
 .send-button.stop-codex svg { width: 11px; height: 11px; color: inherit; }
@@ -884,9 +889,11 @@ body.is-resizing-pane .app-shell { transition: none; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes thinking { from { opacity: .35; transform: translateX(0); } to { opacity: 1; transform: translateX(3px); } }
+@keyframes codex-dots { from { width: 0; } to { width: 3ch; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  .codex-working-dots::after { width: 3ch; }
 }
 
 @media (max-width: 1080px) {

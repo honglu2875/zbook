@@ -145,3 +145,20 @@ test("keeps both side panels usable as narrow-screen drawers", async ({ page }) 
   await expect(page.locator(".file-panel")).toHaveCount(0);
   await expect(codexPanel).toBeVisible();
 });
+
+test("toggles a scaled image at native size with a single click", async ({ page }) => {
+  await openNotebook(page, "image.ipynb");
+
+  const imageFrame = page.locator(".output-image-frame");
+  await expect(imageFrame).toBeVisible();
+  await expect(imageFrame).toHaveAttribute("aria-label", /Click to view the image at 1200 × 80/);
+  await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
+
+  await imageFrame.click();
+  await expect(imageFrame).toHaveAttribute("aria-pressed", "true");
+  await expect(imageFrame).toHaveAttribute("aria-label", "Click to fit the image to the output");
+  expect(await imageFrame.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+
+  await imageFrame.click({ position: { x: 10, y: 10 } });
+  await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
+});

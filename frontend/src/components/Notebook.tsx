@@ -98,8 +98,8 @@ function ImageOutput({ text, data }: { text: string; data: string }) {
     if (canToggle) setNativeSize((value) => !value);
   };
   const sizeAction = nativeSize
-    ? "Double-click to fit the image to the output"
-    : `Double-click to view the image at ${dimensions || "its original resolution"}`;
+    ? "Click to fit the image to the output"
+    : `Click to view the image at ${dimensions || "its original resolution"}`;
 
   return (
     <div
@@ -109,7 +109,8 @@ function ImageOutput({ text, data }: { text: string; data: string }) {
       aria-label={canToggle ? sizeAction : undefined}
       aria-pressed={canToggle ? nativeSize : undefined}
       title={canToggle ? sizeAction : undefined}
-      onDoubleClick={(event) => {
+      onClick={(event) => {
+        if (!canToggle) return;
         event.preventDefault();
         event.stopPropagation();
         toggleSize();

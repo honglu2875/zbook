@@ -1331,6 +1331,17 @@ export function CodexPanel({
           </div>
         )}
       </div>
+      {busy && (
+        <div
+          className="codex-working-indicator"
+          role="status"
+          aria-live="polite"
+          aria-label={`Codex is working: ${stage}`}
+        >
+          <strong>Working<span className="codex-working-dots" aria-hidden="true" /></strong>
+          <em>{stage === "Working" ? "" : stage}</em>
+        </div>
+      )}
       <form className="prompt-box" onSubmit={submit}>
         {selectionQuote && (
           <section className="prompt-selection-quote" aria-label="Quoted notebook selection">
@@ -1375,11 +1386,11 @@ export function CodexPanel({
         />
         <div className="prompt-actions">
           <button type="button" className={`context-button ${includeContext ? "is-active" : ""}`} onClick={() => setIncludeContext((value) => !value)} aria-pressed={includeContext}>@ context</button>
-          <span className={busy ? "is-busy" : ""}>{busy ? stage : "↵ send · ⇧↵ newline"}</span>
+          <span className={busy ? "is-busy" : ""}>{busy ? "stop to interrupt" : "↵ send · ⇧↵ newline"}</span>
           {busy ? (
-            <button type="button" className="send-button stop-codex" onClick={() => { setStage("Stopping"); socketRef.current?.send(JSON.stringify({ type: "interrupt" })); }} title="Stop Codex"><StopIcon /></button>
+            <button type="button" className="send-button stop-codex" onClick={() => { setStage("Stopping"); socketRef.current?.send(JSON.stringify({ type: "interrupt" })); }} aria-label="Stop Codex" title="Stop Codex"><StopIcon /></button>
           ) : (
-            <button type="submit" className="send-button" disabled={!prompt.trim() || !ready} aria-label="Send to Codex">↑</button>
+            <button type="submit" className="send-button" disabled={!prompt.trim() || !ready} aria-label="Send to Codex"><span aria-hidden="true">↑</span></button>
           )}
         </div>
       </form>
