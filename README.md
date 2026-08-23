@@ -1,6 +1,10 @@
 # Zbook
 
-Zbook is a tiny personal project to create a different jupyter notebook frontend. In this AI age it is hard not to have a plugin on the side of your notebook to assist those boilerplate data processing/charting code. It still uses IPython for execution and a Jupyter Server backend, but the whole point of this repo is a custom and minimal React frontend and a uv-based environment management. For me, it is also important to have a VIM keybinding support (can be toggled at the lower left bottom) and natural notebook integration with Codex. I prefer a bunch of notebook-specific tool calls rather than letting Codex do a bunch of bash magics and keep reloading from file.
+Zbook is a tiny personal project to create a different jupyter notebook frontend. In this AI age it is hard not to have a plugin on the side of your notebook to assist those boilerplate code.
+
+![demo](assets/demo.gif)
+
+It still uses a Jupyter Server backend, but the whole point of this project is a custom and minimal React frontend that embeds AI into our notebook workflow and a uv-based environment management. 
 
 I would like to keep features minimal to my own taste. I do not even know if other people would want to use it or contribute, but contribution is welcomed. As long as it is just myself making changes, I will keep pushing to `main` without setting up contribution guidelines. But once this changes, a standard PR and reviewing process will be used.
 
