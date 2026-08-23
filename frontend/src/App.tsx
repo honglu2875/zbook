@@ -42,9 +42,14 @@ import {
   NOTEBOOK_LOCK_TOOL,
   NOTEBOOK_PROPOSE_TOOL,
   NOTEBOOK_READ_TOOL,
+  NOTEBOOK_SOURCE_READ_MAX_CELLS,
+  NOTEBOOK_SOURCE_READ_MAX_CHARACTERS,
+  NOTEBOOK_SOURCE_READ_MAX_LINES,
   NotebookToolInputError,
+  notebookSourceFields,
   numberedSourceLines,
   parseNotebookToolArguments,
+  sourceLineCount,
   type NotebookToolContext,
   type NotebookToolResponse,
 } from "./model/notebookTools";
@@ -1146,10 +1151,107 @@ export default function App() {
       if (args.includeSource !== undefined && typeof args.includeSource !== "boolean") {
         return { success: false, result: { error: "includeSource must be a boolean." } };
       }
-      const includeSource = args.includeSource !== false;
+      const includeSource = args.includeSource === true;
+      let requestedCellIds: string[] | null = null;
+      if (args.cellIds !== undefined) {
+        if (!Array.isArray(args.cellIds)
+          || args.cellIds.length < 1
+          || args.cellIds.length > NOTEBOOK_SOURCE_READ_MAX_CELLS
+          || args.cellIds.some((id) => typeof id !== "string" || id.length < 1 || id.length > 200)
+          || new Set(args.cellIds).size !== args.cellIds.length) {
+          return {
+            success: false,
+            result: {
+              error: "invalid_cell_scope",
+              message: `cellIds must contain 1-${NOTEBOOK_SOURCE_READ_MAX_CELLS} unique current cell IDs.`,
+              availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
+            },
+          };
+        }
+        requestedCellIds = args.cellIds as string[];
+      }
       const notebookProposals = cellProposalsRef.current[current.notebookPath] ?? {};
       const acceptedCellsById = new Map(current.cells.map((cell) => [cell.id, cell]));
       const readableCells = cellsWithInsertionProposals(current.cells, notebookProposals);
+      const readableIds = new Set(readableCells.map((cell) => cell.id));
+      const missingCellIds = requestedCellIds?.filter((id) => !readableIds.has(id)) ?? [];
+      if (missingCellIds.length) {
+        return {
+          success: false,
+          result: {
+            error: "cell_not_found",
+            message: "One or more requested cells are no longer present. Read metadata again.",
+            missingCellIds,
+            nextAction: { tool: NOTEBOOK_READ_TOOL, arguments: { includeSource: false } },
+            availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
+          },
+        };
+      }
+      if (includeSource && !requestedCellIds) {
+        const selectedCellId = readableIds.has(selectedId) ? selectedId : null;
+        return {
+          success: false,
+          result: {
+            error: "source_scope_required",
+            message: "Source reads must name only the relevant cells in cellIds.",
+            ...(selectedCellId ? {
+              nextAction: {
+                tool: NOTEBOOK_READ_TOOL,
+                arguments: { includeSource: true, cellIds: [selectedCellId] },
+              },
+            } : {}),
+            instruction: selectedCellId
+              ? "Call nextAction for the selected cell, or supply another small set from a source-light read."
+              : "Read with includeSource false, then request source for a small set of returned cell IDs.",
+            availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
+          },
+        };
+      }
+      const requestedSet = requestedCellIds ? new Set(requestedCellIds) : null;
+      const returnedCells = readableCells
+        .map((cell, index) => ({ cell, index }))
+        .filter(({ cell }) => !requestedSet || requestedSet.has(cell.id));
+      if (includeSource) {
+        let sourceCharacters = 0;
+        let sourceLines = 0;
+        for (const { cell } of returnedCells) {
+          const proposal = notebookProposals[cell.id];
+          const readableSource = proposal?.draftSource ?? cell.source;
+          sourceCharacters += readableSource.length;
+          sourceLines += sourceLineCount(readableSource);
+          const acceptedCell = acceptedCellsById.get(cell.id);
+          if (proposal?.state === "conflict" && acceptedCell) {
+            sourceCharacters += acceptedCell.source.length;
+            sourceLines += sourceLineCount(acceptedCell.source);
+          }
+        }
+        if (sourceCharacters > NOTEBOOK_SOURCE_READ_MAX_CHARACTERS
+          || sourceLines > NOTEBOOK_SOURCE_READ_MAX_LINES) {
+          return {
+            success: false,
+            result: {
+              error: "source_payload_too_large",
+              message: "That source selection is too large for one notebook tool response.",
+              sourceCharacters,
+              sourceLines,
+              limits: {
+                sourceCharacters: NOTEBOOK_SOURCE_READ_MAX_CHARACTERS,
+                sourceLines: NOTEBOOK_SOURCE_READ_MAX_LINES,
+              },
+              ...(returnedCells.length > 1 ? {
+                nextAction: {
+                  tool: NOTEBOOK_READ_TOOL,
+                  arguments: { includeSource: true, cellIds: [returnedCells[0].cell.id] },
+                },
+              } : {}),
+              instruction: returnedCells.length > 1
+                ? "Split the requested cellIds into smaller source reads, starting with nextAction."
+                : "This individual cell is too large for the notebook editing API.",
+              availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
+            },
+          };
+        }
+      }
       return {
         success: true,
         result: {
@@ -1157,30 +1259,28 @@ export default function App() {
           documentRevision: revision.current,
           selectedCellId: selectedId || null,
           saveState: current.saveState,
+          totalCellCount: readableCells.length,
+          returnedCellCount: returnedCells.length,
           sourceIncluded: includeSource,
           sourceLineNumbering: includeSource ? "one_based" : null,
+          sourceRepresentation: includeSource ? "sourceLines_only" : null,
           lockedCellIds: codexLockedCellIds(current.notebookPath),
           pendingCellIds: Object.keys(notebookProposals),
           availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
-          cells: readableCells.map((cell, index) => {
+          cells: returnedCells.map(({ cell, index }) => {
             const proposal = notebookProposals[cell.id];
             const acceptedCell = acceptedCellsById.get(cell.id);
             const readableSource = proposal?.draftSource ?? cell.source;
-            const numberedLines = includeSource ? numberedSourceLines(readableSource) : [];
             return {
               index,
               id: cell.id,
               cellType: cell.kind,
               executionCount: cell.executionCount,
-              ...(includeSource ? {
-                source: readableSource,
-                sourceLines: numberedLines,
-                lineCount: numberedLines.length,
-              } : {}),
+              ...notebookSourceFields(readableSource, includeSource),
               ...(proposal ? {
                 pendingChange: proposalForRead(proposal, acceptedCell?.source ?? null, includeSource),
                 ...(proposal.state === "conflict" && includeSource
-                  ? { acceptedSource: acceptedCell?.source ?? null }
+                  ? { acceptedSourceLines: numberedSourceLines(acceptedCell?.source ?? "") }
                   : {}),
               } : {}),
             };
@@ -1480,6 +1580,9 @@ export default function App() {
       : undefined;
     if (migratedOperation) {
       const inserting = migratedOperation.op === "insert_after";
+      const migratedCellId = typeof migratedOperation.cellId === "string"
+        ? migratedOperation.cellId
+        : null;
       return {
         success: false,
         result: {
@@ -1489,7 +1592,9 @@ export default function App() {
             : "Existing-cell source edits must be streamed through zbook_notebook_propose for user review.",
           nextAction: {
             tool: NOTEBOOK_READ_TOOL,
-            arguments: { includeSource: true },
+            arguments: !inserting && migratedCellId
+              ? { includeSource: true, cellIds: [migratedCellId] }
+              : { includeSource: false },
           },
           instruction: inserting
             ? "Read the current cells, lock afterCellId when non-null, then call zbook_notebook_propose with action insert_cell."

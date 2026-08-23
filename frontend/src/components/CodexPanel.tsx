@@ -978,7 +978,6 @@ export function CodexPanel({
         notebook: notebookPath,
         cellKind: selectedCell?.kind,
         cellId: selectedCell?.id,
-        source: selectedCell?.source,
       } : null,
     }));
     setPrompt("");

@@ -16,8 +16,53 @@ export interface NotebookToolResponse {
   result: unknown;
 }
 
+export const NOTEBOOK_SOURCE_READ_MAX_CELLS = 20;
+export const NOTEBOOK_SOURCE_READ_MAX_CHARACTERS = 1_000_000;
+export const NOTEBOOK_SOURCE_READ_MAX_LINES = 50_000;
+
 export function numberedSourceLines(source: string): Array<{ lineNumber: number; text: string }> {
   return source.split("\n").map((text, index) => ({ lineNumber: index + 1, text }));
+}
+
+export function sourceLineCount(source: string): number {
+  let count = 1;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source.charCodeAt(index) === 10) count += 1;
+  }
+  return count;
+}
+
+export function sourcePreview(source: string, maximumLength = 160): string {
+  let start = 0;
+  for (let line = 0; line < 20 && start <= source.length; line += 1) {
+    const newline = source.indexOf("\n", start);
+    const end = newline < 0 ? source.length : newline;
+    const candidate = source.slice(start, Math.min(end, start + maximumLength + 1)).trim();
+    if (candidate) {
+      return candidate.length > maximumLength
+        ? `${candidate.slice(0, maximumLength - 1)}…`
+        : candidate;
+    }
+    if (newline < 0) break;
+    start = newline + 1;
+  }
+  return "";
+}
+
+export function notebookSourceFields(source: string, includeSource: boolean): Record<string, unknown> {
+  if (includeSource) {
+    const sourceLines = numberedSourceLines(source);
+    return {
+      sourceLength: source.length,
+      lineCount: sourceLines.length,
+      sourceLines,
+    };
+  }
+  return {
+    sourceLength: source.length,
+    lineCount: sourceLineCount(source),
+    sourcePreview: sourcePreview(source),
+  };
 }
 
 export interface AppliedNotebookOperations {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { NotebookCell } from "./notebook";
-import { numberedSourceLines } from "./notebookTools";
+import {
+  notebookSourceFields,
+  numberedSourceLines,
+  sourceLineCount,
+  sourcePreview,
+} from "./notebookTools";
 import {
   applyProposalOperation,
   applyReviewedCellProposal,
@@ -52,6 +57,28 @@ describe("cell proposals", () => {
       { lineNumber: 2, text: "" },
       { lineNumber: 3, text: "beta" },
     ]);
+    expect(sourceLineCount("alpha\n\nbeta")).toBe(3);
+    expect(sourcePreview("\n  \nalpha\nbeta")).toBe("alpha");
+  });
+
+  it("does not duplicate exact source in a source-bearing read", () => {
+    const fields = notebookSourceFields("alpha\n\nbeta", true);
+    expect(fields).toEqual({
+      sourceLength: 11,
+      lineCount: 3,
+      sourceLines: [
+        { lineNumber: 1, text: "alpha" },
+        { lineNumber: 2, text: "" },
+        { lineNumber: 3, text: "beta" },
+      ],
+    });
+    expect(fields).not.toHaveProperty("source");
+    expect(fields).not.toHaveProperty("sourcePreview");
+    expect(notebookSourceFields("alpha\nbeta", false)).toEqual({
+      sourceLength: 10,
+      lineCount: 2,
+      sourcePreview: "alpha",
+    });
   });
 
   it("stages exact hunks without changing the accepted cell", () => {

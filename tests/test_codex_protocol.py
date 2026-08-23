@@ -6,14 +6,16 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 from zbook.codex import (
+    CODEX_STREAM_LIMIT_BYTES,
     NOTEBOOK_DYNAMIC_TOOLS,
     NOTEBOOK_TOOL_INSTRUCTIONS,
     CodexAppServer,
     CodexProtocolError,
     CodexRequestError,
+    CodexUnavailable,
     encode_message,
 )
 from zbook.codex_handler import (
@@ -36,7 +38,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(CodexProtocolError):
             encode_message({"jsonrpc": "2.0", "method": "initialize"})
 
-    def test_prompt_context_names_notebook_and_selected_cell(self) -> None:
+    def test_prompt_context_names_notebook_and_selected_cell_without_source(self) -> None:
         prompt = prompt_with_context(
             "Explain this",
             {
@@ -50,7 +52,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Explain this", prompt)
         self.assertIn("analysis.ipynb", prompt)
         self.assertIn("notebook cell id: cell-42", prompt)
-        self.assertIn("```python\nprint(42)", prompt)
+        self.assertNotIn("print(42)", prompt)
 
     async def test_dispatch_resolves_response(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -115,7 +117,9 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         tools = {tool["name"]: tool for tool in NOTEBOOK_DYNAMIC_TOOLS}
         read_schema = tools["zbook_notebook_read"]["inputSchema"]
         self.assertEqual(read_schema["properties"]["includeSource"]["type"], "boolean")
-        self.assertTrue(read_schema["properties"]["includeSource"]["default"])
+        self.assertFalse(read_schema["properties"]["includeSource"]["default"])
+        self.assertEqual(read_schema["properties"]["cellIds"]["maxItems"], 20)
+        self.assertTrue(read_schema["properties"]["cellIds"]["uniqueItems"])
 
         lock_schema = tools["zbook_notebook_lock"]["inputSchema"]
         self.assertEqual(lock_schema["properties"]["action"]["enum"], ["lock", "unlock"])
@@ -164,9 +168,14 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("once per small coherent hunk", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("proposal on the user's behalf", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("sourceLines[].lineNumber", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn(
+            "return sourceLines, not a duplicate source string",
+            NOTEBOOK_TOOL_INSTRUCTIONS,
+        )
         self.assertIn("never use insert_after", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("announce a successful lock", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("capability-discovery endpoint", tools["zbook_notebook_read"]["description"])
+        self.assertGreater(CODEX_STREAM_LIMIT_BYTES, 64 * 1024)
 
     async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -293,6 +302,15 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             {"documentRevision": 7, "saved": True},
         )
 
+    def test_dynamic_tool_response_rejects_an_oversized_payload(self) -> None:
+        with patch("zbook.codex_handler._MAX_DYNAMIC_TOOL_RESPONSE_BYTES", 32):
+            response = dynamic_tool_response(True, {"sourceLines": ["x" * 64]})
+
+        self.assertFalse(response["success"])
+        result = json.loads(response["contentItems"][0]["text"])
+        self.assertEqual(result["error"], "tool_result_too_large")
+        self.assertGreater(result["responseBytes"], 32)
+
     async def test_turn_applies_model_and_reasoning_effort(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             client = CodexAppServer(Path(directory))
@@ -354,6 +372,52 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
             events = [event async for event in client.events()]
 
             self.assertEqual(events, [{"method": "thread/started", "params": {}}])
+
+    async def test_stdout_reader_accepts_a_jsonl_frame_larger_than_64_kib(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            client = CodexAppServer(Path(directory))
+            reader = asyncio.StreamReader(limit=CODEX_STREAM_LIMIT_BYTES)
+            event = {"method": "large/event", "params": {"text": "x" * 100_000}}
+            reader.feed_data(encode_message(event))
+            reader.feed_eof()
+            client._process = SimpleNamespace(stdout=reader, returncode=0)  # type: ignore[assignment]
+
+            await client._read_stdout()
+
+            self.assertEqual(await client._events.get(), event)
+            self.assertIsNone(await client._events.get())
+
+    async def test_stdout_failure_stops_pending_requests_and_reports_transport_error(self) -> None:
+        class FailingStream:
+            def __aiter__(self) -> FailingStream:
+                return self
+
+            async def __anext__(self) -> bytes:
+                raise ValueError("Separator is not found, and chunk exceed the limit")
+
+        with tempfile.TemporaryDirectory() as directory:
+            client = CodexAppServer(Path(directory))
+            terminate = Mock()
+            client._process = SimpleNamespace(  # type: ignore[assignment]
+                stdout=FailingStream(),
+                returncode=None,
+                terminate=terminate,
+            )
+            future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+            client._pending[9] = future
+
+            await client._read_stdout()
+
+            event = await client._events.get()
+            self.assertEqual(event["method"], "client/transportError")
+            self.assertIn("32 MiB", event["params"]["message"])
+            self.assertIsNone(await client._events.get())
+            with self.assertRaises(CodexUnavailable):
+                await future
+            self.assertFalse(client.running)
+            with self.assertRaises(CodexUnavailable):
+                await client.request("turn/interrupt")
+            terminate.assert_called_once_with()
 
 
 if __name__ == "__main__":

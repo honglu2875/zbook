@@ -23,18 +23,22 @@ class CodexRequestError(RuntimeError):
 
 
 DEFAULT_REQUEST_TIMEOUT = 30.0
+CODEX_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
 
 NOTEBOOK_TOOL_INSTRUCTIONS = """You are embedded in Zbook. When reading or changing the open
 notebook, use Zbook's notebook tools instead of editing the .ipynb file with shell commands or
-apply_patch. Read immediately before editing and pass its notebookPath and documentRevision as
-expectedRevision. A source-bearing read provides both source and sourceLines. For every stage_hunk,
-take startLine from sourceLines[].lineNumber and copy sourceLines[].text exactly into oldLines;
-never count displayed, wrapped, or blank lines yourself. If the user's request requires modifying
-existing cells, identify the relevant cells on the first read and immediately lock the likely set
-with zbook_notebook_lock before further investigation, reasoning, or tool actions; expand the
-locked set later if needed. Keep those locks while you read, reason, stage edits, check, and revise
-across the turn; unlock cells early only when they are no longer relevant. Locks do not change
-documentRevision and release automatically when the turn ends.
+apply_patch. Start with zbook_notebook_read includeSource false to get the current notebookPath,
+documentRevision, selected cell, and compact metadata for every cell. Source reads are deliberately
+scoped: call read again with includeSource true and cellIds containing only relevant cells. They
+return sourceLines, not a duplicate source string. Before editing, pass the latest notebookPath and
+documentRevision as expectedRevision. For every stage_hunk, take startLine from
+sourceLines[].lineNumber and copy sourceLines[].text exactly into oldLines; never count displayed,
+wrapped, or blank lines yourself. If the user's request requires modifying existing cells, identify
+the relevant cells on the first source-light read and immediately lock the likely set with
+zbook_notebook_lock before further investigation, reasoning, or tool actions; expand the locked set
+later if needed. Keep those locks while you read, reason, stage edits, check, and revise across the
+turn; unlock cells early only when they are no longer relevant. Locks do not change documentRevision
+and release automatically when the turn ends.
 
 For source edits to existing cells, never use replace_source in zbook_notebook_apply. Instead call
 zbook_notebook_propose once per small coherent hunk so the user sees the diff develop live. Each
@@ -53,10 +57,11 @@ If an operation reports a conflict, read again before retrying. If you are unsur
 actions are currently available, call zbook_notebook_read: its availableActions field is the
 authoritative live tool inventory. If a call reports cells_not_locked, immediately call the exact
 tool and arguments returned in nextAction; never ask the user to lock cells in the UI.
-For a reorder-only task, read with includeSource false, lock the cells whose positions matter,
-then use move_after or swap operations in zbook_notebook_apply without resending source. Type,
-delete, and reorder operations remain atomic and saved immediately. The Zbook activity feed already
-shows reads, locks, proposals, and retries. Do not send assistant messages merely to narrate those
+For a reorder-only task, the initial source-light read is sufficient. Lock the cells whose
+positions matter, then use move_after or swap operations in zbook_notebook_apply without resending
+source. Type, delete, and reorder operations remain atomic and saved immediately. The Zbook
+activity feed already shows reads, locks, proposals, and retries. Do not send assistant messages
+merely to narrate those
 routine steps or announce a successful lock; chain the tool calls silently and give one concise
 final response. Speak mid-turn only when user input is genuinely required or progress is blocked.
 Shell tools remain appropriate for non-notebook workspace files."""
@@ -68,20 +73,29 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
         "description": (
             "Read the notebook currently open in the Zbook UI, including stable cell IDs and the "
             "document revision needed for edits. Use this instead of reading the .ipynb with shell "
-            "commands. Set includeSource to false for reorder-only work to avoid loading cell "
-            "contents into context; it defaults to true. Source-bearing reads include sourceLines, "
-            "an exact one-based lineNumber/text view intended for stage_hunk addressing. Every "
-            "response also reports the live availableActions tool inventory, making this the "
-            "capability-discovery endpoint."
+            "commands. Start with includeSource false (the default) for compact metadata across "
+            "the notebook. To inspect source, set includeSource true and pass cellIds for only the "
+            "relevant cells. A source-bearing read returns sourceLines only: an exact one-based "
+            "lineNumber/text view intended for stage_hunk addressing, without a duplicate source "
+            "string. Every response also reports the live availableActions tool inventory, making "
+            "this the capability-discovery endpoint."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "includeSource": {
                     "type": "boolean",
-                    "default": True,
-                    "description": "Include each cell's source. Use false for reordering only.",
-                }
+                    "default": False,
+                    "description": "Return exact sourceLines for the cells named by cellIds.",
+                },
+                "cellIds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "uniqueItems": True,
+                    "items": {"type": "string"},
+                    "description": "Optional cell filter; required when includeSource is true.",
+                },
             },
             "additionalProperties": False,
         },
@@ -360,15 +374,26 @@ class CodexAppServer:
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._events: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self._stderr: asyncio.Queue[str] = asyncio.Queue(maxsize=200)
+        self._transport_error: CodexUnavailable | None = None
+        self._closing = False
 
     @property
     def running(self) -> bool:
-        return self._process is not None and self._process.returncode is None
+        return (
+            self._process is not None
+            and self._process.returncode is None
+            and self._transport_error is None
+            and not self._closing
+        )
 
     async def start(self) -> None:
         if self.running:
             return
+        if self._process is not None:
+            await self.close()
         self._events = asyncio.Queue()
+        self._transport_error = None
+        self._closing = False
         try:
             self._process = await asyncio.create_subprocess_exec(
                 self.executable,
@@ -377,6 +402,7 @@ class CodexAppServer:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=CODEX_STREAM_LIMIT_BYTES,
             )
         except (FileNotFoundError, PermissionError) as error:
             raise CodexUnavailable(f"Cannot start {self.executable!r}: {error}") from error
@@ -537,8 +563,39 @@ class CodexAppServer:
                     )
                     continue
                 await self._dispatch(message)
+            if not self._closing and self._process.returncode is None:
+                self._transport_error = CodexUnavailable(
+                    "Codex App Server closed its output stream unexpectedly"
+                )
+                await self._events.put(
+                    {
+                        "method": "client/transportError",
+                        "params": {"message": str(self._transport_error)},
+                    }
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            if "chunk exceed the limit" in str(error):
+                message = (
+                    "Codex App Server emitted a JSON message larger than Zbook's "
+                    f"{CODEX_STREAM_LIMIT_BYTES // (1024 * 1024)} MiB transport limit"
+                )
+            else:
+                message = f"Codex App Server transport failed: {error}"
+            self._transport_error = CodexUnavailable(message)
+            await self._events.put(
+                {
+                    "method": "client/transportError",
+                    "params": {"message": message},
+                }
+            )
+            process = self._process
+            if process is not None and process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.terminate()
         finally:
-            error = CodexUnavailable("Codex App Server stopped")
+            error = self._transport_error or CodexUnavailable("Codex App Server stopped")
             for future in self._pending.values():
                 if not future.done():
                     future.set_exception(error)
@@ -569,20 +626,31 @@ class CodexAppServer:
         process = self._process
         if process is None:
             return
-        if process.stdin is not None:
-            process.stdin.close()
-            with contextlib.suppress(BrokenPipeError):
-                await process.stdin.wait_closed()
-        if process.returncode is None:
-            try:
-                await asyncio.wait_for(process.wait(), timeout=2)
-            except TimeoutError:
-                process.terminate()
-                with contextlib.suppress(ProcessLookupError):
-                    await process.wait()
-        for task in (self._reader_task, self._stderr_task):
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-        self._process = None
+        self._closing = True
+        try:
+            if process.stdin is not None:
+                process.stdin.close()
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                    await process.stdin.wait_closed()
+            if process.returncode is None:
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=2)
+                except TimeoutError:
+                    with contextlib.suppress(ProcessLookupError):
+                        process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=2)
+                    except TimeoutError:
+                        with contextlib.suppress(ProcessLookupError):
+                            process.kill()
+                        await process.wait()
+            for task in (self._reader_task, self._stderr_task):
+                if task is not None:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
+        finally:
+            self._process = None
+            self._reader_task = None
+            self._stderr_task = None
+            self._closing = False

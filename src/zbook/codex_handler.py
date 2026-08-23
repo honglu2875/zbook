@@ -31,6 +31,7 @@ _PREFERRED_MODEL = "gpt-5.6-luna"
 _PREFERRED_EFFORT = "medium"
 _ZBOOK_CONTEXT_MARKER = "\n\nZbook context supplied by the user:\n"
 _MAX_ACTIVITY_TEXT = 12_000
+_MAX_DYNAMIC_TOOL_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
 def choose_default_model(models: list[dict[str, Any]]) -> tuple[str | None, str | None]:
@@ -73,17 +74,12 @@ def prompt_with_context(prompt: str, context: Any) -> str:
     notebook = context.get("notebook")
     cell_kind = context.get("cellKind")
     cell_id = context.get("cellId")
-    source = context.get("source")
     details: list[str] = []
     if isinstance(notebook, str) and notebook:
         details.append(f"Open notebook: {notebook[:4_000]}")
-    if isinstance(cell_kind, str) and isinstance(source, str):
-        language = "python" if cell_kind == "code" else "markdown"
+    if isinstance(cell_kind, str):
         identity = f" (notebook cell id: {cell_id[:200]})" if isinstance(cell_id, str) else ""
-        details.append(
-            f"Selected {cell_kind} cell{identity}:\n"
-            f"```{language}\n{source[:20_000]}\n```"
-        )
+        details.append(f"Selected {cell_kind} cell{identity}.")
     if not details:
         return value
     return f"{value}{_ZBOOK_CONTEXT_MARKER}" + "\n\n".join(details)
@@ -91,12 +87,27 @@ def prompt_with_context(prompt: str, context: Any) -> str:
 
 def dynamic_tool_response(success: bool, result: Any) -> dict[str, Any]:
     """Encode the exact DynamicToolCallResponse shape expected by App Server."""
+    text = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    response_size = len(text.encode())
+    if response_size > _MAX_DYNAMIC_TOOL_RESPONSE_BYTES:
+        success = False
+        text = json.dumps(
+            {
+                "error": "tool_result_too_large",
+                "message": (
+                    "The Zbook notebook result exceeded the bridge limit. "
+                    "Read fewer cells at a time."
+                ),
+                "responseBytes": response_size,
+            },
+            separators=(",", ":"),
+        )
     return {
         "success": success,
         "contentItems": [
             {
                 "type": "inputText",
-                "text": json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+                "text": text,
             }
         ],
     }
@@ -493,6 +504,7 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
 
     async def _forward_events(self) -> None:
         assert self.codex is not None
+        transport_failed = False
         try:
             async for event in self.codex.events():
                 params = event.get("params")
@@ -500,6 +512,20 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
                 if event_thread and event_thread != self.thread_id:
                     continue
                 method = event.get("method")
+                if method == "client/transportError":
+                    message = (
+                        params.get("message")
+                        if isinstance(params, dict) and isinstance(params.get("message"), str)
+                        else "The Codex CLI transport stopped unexpectedly."
+                    )
+                    transport_failed = True
+                    self.turn_id = None
+                    for timeout in self.notebook_tool_timeouts.values():
+                        timeout.cancel()
+                    self.notebook_tool_timeouts.clear()
+                    self.notebook_tool_ids.clear()
+                    await self._send({"type": "error", "message": message})
+                    continue
                 if method == _NOTEBOOK_TOOL_METHOD:
                     await self._forward_notebook_tool(event, params)
                     continue
@@ -532,7 +558,7 @@ class CodexWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
             self.log.exception("Codex event stream failed")
             await self._send({"type": "error", "message": str(error)})
         else:
-            if not self.codex.running:
+            if not self.codex.running and not transport_failed:
                 await self._send(
                     {
                         "type": "error",
