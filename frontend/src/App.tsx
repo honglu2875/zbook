@@ -410,6 +410,7 @@ export default function App() {
   const vimKeymapRef = useRef<HTMLDivElement | null>(null);
   const restoredWorkspace = useRef<string | null>(null);
   const workspaceNavigationVersion = useRef(0);
+  const paneInteractionVersion = useRef(0);
   const kernelPoolRef = useRef<NotebookKernelPool | null>(null);
   if (kernelPoolRef.current === null) {
     kernelPoolRef.current = new NotebookKernelPool(
@@ -446,8 +447,10 @@ export default function App() {
       setOpenTabs(session.openTabs);
       setTreeDirectory(session.treeDirectory);
     }
-    setLeftOpen(session.leftOpen);
-    setRightOpen(session.rightOpen);
+    if (paneInteractionVersion.current === 0) {
+      setLeftOpen(session.leftOpen);
+      setRightOpen(session.rightOpen);
+    }
     const storedVimEnabled = storedVimPreference();
     const restoredVimEnabled = storedVimEnabled ?? session.vimEnabled ?? false;
     setVimEnabled(restoredVimEnabled);
@@ -2218,7 +2221,32 @@ export default function App() {
     setMode(vimEnabled ? "NORMAL" : "INSERT");
   }
 
+  function toggleSidePanel(side: PaneSide) {
+    paneInteractionVersion.current += 1;
+    const singlePane = window.matchMedia("(max-width: 620px)").matches;
+    if (side === "left") {
+      const next = !leftOpen;
+      setLeftOpen(next);
+      if (next && singlePane) setRightOpen(false);
+      return;
+    }
+    const next = !rightOpen;
+    setRightOpen(next);
+    if (next && singlePane) setLeftOpen(false);
+  }
+
+  function closeResponsivePanel() {
+    paneInteractionVersion.current += 1;
+    if (window.matchMedia("(max-width: 620px)").matches && rightOpen) {
+      setRightOpen(false);
+    } else if (window.matchMedia("(max-width: 800px)").matches && leftOpen) {
+      setLeftOpen(false);
+    }
+  }
+
   function focusCodexPrompt() {
+    paneInteractionVersion.current += 1;
+    if (window.matchMedia("(max-width: 620px)").matches) setLeftOpen(false);
     setRightOpen(true);
     window.requestAnimationFrame(() => {
       const prompt = document.querySelector<HTMLTextAreaElement>(".prompt-box textarea:not(:disabled)");
@@ -2816,13 +2844,13 @@ export default function App() {
       id: "panel.workspace",
       label: `${leftOpen ? "Hide" : "Show"} workspace panel`,
       detail: "Toggle the file tree",
-      run: () => setLeftOpen((value) => !value),
+      run: () => toggleSidePanel("left"),
     },
     {
       id: "panel.codex",
       label: `${rightOpen ? "Hide" : "Show"} Codex panel`,
       detail: "Toggle the assistant",
-      run: () => setRightOpen((value) => !value),
+      run: () => toggleSidePanel("right"),
     },
     {
       id: "codex.focus",
@@ -2852,16 +2880,24 @@ export default function App() {
       <header className="titlebar">
         <div className="brand"><i><span>Z</span></i><span>zbook</span></div>
         <div className="title-actions">
-          <button className={leftOpen ? "is-active" : ""} onClick={() => setLeftOpen((value) => !value)} aria-label="Toggle files"><PanelIcon /></button>
+          <button className={leftOpen ? "is-active" : ""} onClick={() => toggleSidePanel("left")} aria-label="Toggle files" aria-pressed={leftOpen}><PanelIcon /></button>
           <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title="Quick open (Ctrl/Cmd-P)"><SearchIcon /></button>
           {kernelState === "busy" ? (
             <button className="run-all" onClick={() => void interruptKernel()}><StopIcon />Interrupt</button>
           ) : (
             <button className="run-all" disabled={!notebookPath || notebookToolLocked || !status?.kernel.ready} onClick={() => void runAll()}><PlayIcon />Run all</button>
           )}
-          <button className={rightOpen ? "is-active" : ""} onClick={() => setRightOpen((value) => !value)} aria-label="Toggle Codex"><PanelIcon /></button>
+          <button className={rightOpen ? "is-active" : ""} onClick={() => toggleSidePanel("right")} aria-label="Toggle Codex" aria-pressed={rightOpen}><PanelIcon /></button>
         </div>
       </header>
+      {(leftOpen || rightOpen) && (
+        <button
+          type="button"
+          className={`pane-scrim ${leftOpen ? "has-left" : ""} ${rightOpen ? "has-right" : ""}`}
+          aria-label="Close open side panel"
+          onClick={closeResponsivePanel}
+        />
+      )}
       {leftOpen && (
         <FileTree
           workspaceName={workspaceName}
