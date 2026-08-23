@@ -233,9 +233,18 @@ export function Notebook({
                 data-cell-id={cell.id}
                 className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
                 tabIndex={0}
-                onFocus={() => onSelect(cell.id)}
-                onClick={() => onSelect(cell.id)}
-                onDoubleClick={() => { if (!cellLocked) onEdit(cell.id); }}
+                onFocus={(event) => {
+                  if (event.target === event.currentTarget) onSelect(cell.id);
+                }}
+                onClick={(event) => {
+                  if ((event.target as HTMLElement).closest(".cell-editor")) return;
+                  onSelect(cell.id);
+                  event.currentTarget.focus({ preventScroll: true });
+                }}
+                onDoubleClick={(event) => {
+                  if ((event.target as HTMLElement).closest(".cell-editor")) return;
+                  if (!cellLocked) onEdit(cell.id);
+                }}
                 aria-label={`${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}`}
               >
                 <div
@@ -339,10 +348,15 @@ export function Notebook({
                           <CellEditor
                             kind={cell.kind}
                             source={cell.source}
+                            editing={editing}
                             vimEnabled={vimEnabled}
                             readOnly={cellLocked}
                             onChange={(source) => onChange(cell.id, source)}
                             onRun={(advance, insert) => onRun(cell.id, advance, insert)}
+                            onFocus={() => {
+                              if (cellLocked) onSelect(cell.id);
+                              else onEdit(cell.id);
+                            }}
                             onModeChange={(nextMode) => {
                               onModeChange(nextMode);
                               if (nextMode === "NAV") onStopEdit(cell.id);

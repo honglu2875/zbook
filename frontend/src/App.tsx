@@ -298,6 +298,7 @@ export default function App() {
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const directoryRequestVersions = useRef<Record<string, number>>({});
   const selectedByNotebook = useRef<Record<string, string>>({});
+  const selectedIdRef = useRef(selectedId);
   const restoredWorkspace = useRef<string | null>(null);
   const kernelClient = useRef<KernelClient | null>(null);
   if (kernelClient.current === null) kernelClient.current = new KernelClient(setKernelState);
@@ -305,6 +306,7 @@ export default function App() {
   documentRef.current = { cells, metadata, notebookPath, saveState };
   directoriesRef.current = directories;
   openTabsRef.current = openTabs;
+  selectedIdRef.current = selectedId;
 
   useEffect(() => {
     void refreshStatus();
@@ -403,32 +405,31 @@ export default function App() {
       if (mode !== "NAV" || cells.length === 0) return;
       const target = event.target as HTMLElement;
       if (target.closest("textarea, input, select, .cm-editor")) return;
-      const index = Math.max(0, cells.findIndex((cell) => cell.id === selectedId));
+      const currentId = selectedIdRef.current;
+      const index = Math.max(0, cells.findIndex((cell) => cell.id === currentId));
       if (event.key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
-        setSelectedId(cells[Math.min(index + 1, cells.length - 1)].id);
+        enterCellNavigation(cells[Math.min(index + 1, cells.length - 1)].id);
       } else if (event.key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
-        setSelectedId(cells[Math.max(index - 1, 0)].id);
+        enterCellNavigation(cells[Math.max(index - 1, 0)].id);
       } else if (event.shiftKey && event.key === "Enter") {
         event.preventDefault();
-        void runCell(selectedId, true, false);
+        void runCell(currentId, true, false);
       } else if (event.key === "Enter" || event.key === "i") {
         event.preventDefault();
-        if (cellMutationBlocked(selectedId)) return;
-        setEditingId(selectedId);
-        setMode(vimEnabled ? "NORMAL" : "INSERT");
+        beginCellEditing(currentId);
       } else if (event.key.toLowerCase() === "o" || event.key.toLowerCase() === "b") {
         event.preventDefault();
-        insertAfter(selectedId, "code");
+        insertAfter(currentId, "code");
       } else if (event.key.toLowerCase() === "a") {
         event.preventDefault();
-        insertBefore(selectedId, "code");
+        insertBefore(currentId, "code");
       }
     }
     window.addEventListener("keydown", handleGlobalKeys);
     return () => window.removeEventListener("keydown", handleGlobalKeys);
-  }, [cells, mode, selectedId, vimEnabled]);
+  }, [cells, mode, vimEnabled]);
 
   useEffect(() => {
     if (!notice) return;
@@ -1240,12 +1241,38 @@ export default function App() {
   }
 
   function selectCell(id: string) {
-    if (id !== selectedId) {
+    if (id !== selectedIdRef.current) {
       setEditingId(null);
       setMode("NAV");
     }
+    selectedIdRef.current = id;
     if (notebookPath) selectedByNotebook.current[notebookPath] = id;
     setSelectedId(id);
+  }
+
+  function focusNavigationCell(id: string) {
+    window.requestAnimationFrame(() => {
+      const element = Array.from(document.querySelectorAll<HTMLElement>(".notebook-cell[data-cell-id]"))
+        .find((candidate) => candidate.dataset.cellId === id);
+      if (!element) return;
+      element.focus({ preventScroll: true });
+      element.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  }
+
+  function enterCellNavigation(id: string) {
+    if (!id) return;
+    selectCell(id);
+    setEditingId(null);
+    setMode("NAV");
+    focusNavigationCell(id);
+  }
+
+  function beginCellEditing(id: string) {
+    if (!id || notebookToolLockedRef.current || cellMutationBlocked(id)) return;
+    selectCell(id);
+    setEditingId(id);
+    setMode(vimEnabled ? "NORMAL" : "INSERT");
   }
 
   function toggleCellView(id: string, option: CellViewOption) {
@@ -1646,7 +1673,7 @@ export default function App() {
       id: "help.keys",
       label: "Show keyboard shortcuts",
       detail: "Notebook navigation and app commands",
-      run: () => setNotice("Keys: ⌘/Ctrl-P quick open · ⇧⌘/Ctrl-P commands · J/K select · A/B insert · Enter edit · ⌘/Ctrl-S save"),
+      run: () => setNotice("Keys: ⌘/Ctrl-P quick open · ⇧⌘/Ctrl-P commands · J/K select · A/B insert · Enter edit · Escape navigate · ⌘/Ctrl-S save"),
     },
   ];
   return (
@@ -1813,12 +1840,7 @@ export default function App() {
             )}
             cellViews={cellViewsByNotebook[notebookPath] ?? {}}
             onSelect={selectCell}
-            onEdit={(id) => {
-              if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
-              setSelectedId(id);
-              setEditingId(id);
-              setMode(vimEnabled ? "NORMAL" : "INSERT");
-            }}
+            onEdit={beginCellEditing}
             onChange={updateCell}
             onChangeKind={changeCellKind}
             onDelete={deleteCell}
@@ -1831,7 +1853,7 @@ export default function App() {
             onExport={exportNotebook}
             onReload={() => void reloadNotebook()}
             onModeChange={setMode}
-            onStopEdit={(id) => setEditingId((current) => current === id ? null : current)}
+            onStopEdit={enterCellNavigation}
           />
         ) : (
           <main className="empty-workspace">

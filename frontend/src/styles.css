@@ -363,6 +363,7 @@ body.is-resizing-pane .app-shell { transition: none; }
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
   margin: 0;
+  scroll-margin-block: 14px;
   border: 1px solid transparent;
   border-radius: 7px;
   outline: 0;

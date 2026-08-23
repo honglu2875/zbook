@@ -3,7 +3,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { vim } from "@replit/codemirror-vim";
+import { getCM, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import type { CellKind } from "../model/notebook";
@@ -12,40 +12,59 @@ import { zbookTheme } from "../editor/theme";
 interface CellEditorProps {
   kind: CellKind;
   source: string;
+  editing: boolean;
   vimEnabled: boolean;
   readOnly: boolean;
   onChange: (source: string) => void;
   onRun: (advance: boolean, insert: boolean) => void;
+  onFocus: () => void;
   onModeChange: (mode: string) => void;
+}
+
+function currentVimMode(editor: EditorView): string {
+  const state = getCM(editor)?.state.vim;
+  if (state?.mode) return state.mode.toUpperCase();
+  if (state?.visualMode) return "VISUAL";
+  return state?.insertMode ? "INSERT" : "NORMAL";
 }
 
 export function CellEditor({
   kind,
   source,
+  editing,
   vimEnabled,
   readOnly,
   onChange,
   onRun,
+  onFocus,
   onModeChange,
 }: CellEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const synchronizingSource = useRef(false);
-  const callbacks = useRef({ onChange, onRun, onModeChange });
-  callbacks.current = { onChange, onRun, onModeChange };
+  const callbacks = useRef({ onChange, onRun, onFocus, onModeChange });
+  callbacks.current = { onChange, onRun, onFocus, onModeChange };
 
   useEffect(() => {
     if (!host.current) return;
 
     const notebookKeys = EditorView.domEventHandlers({
-      focus: () => {
-        callbacks.current.onModeChange(vimEnabled ? "NORMAL" : "INSERT");
+      focus: (_event, editor) => {
+        callbacks.current.onFocus();
+        callbacks.current.onModeChange(vimEnabled ? currentVimMode(editor) : "INSERT");
         return false;
       },
-      keydown: (event) => {
-        if (event.shiftKey && event.key === "Escape") {
+      keydown: (event, editor) => {
+        if (event.key === "Escape") {
+          const vimState = vimEnabled ? getCM(editor)?.state.vim : null;
+          const vimIsEditing = Boolean(
+            vimState?.insertMode
+            || vimState?.visualMode
+            || vimState?.mode === "replace",
+          );
+          if (vimEnabled && vimIsEditing) return false;
           event.preventDefault();
-          (event.currentTarget as HTMLElement).blur();
+          editor.contentDOM.blur();
           callbacks.current.onModeChange("NAV");
           return true;
         }
@@ -80,10 +99,6 @@ export function CellEditor({
           callbacks.current.onRun(true, true);
           return true;
         }
-        if (vimEnabled && event.key === "Escape") callbacks.current.onModeChange("NORMAL");
-        if (vimEnabled && !event.metaKey && !event.ctrlKey && /^[iIaAoOsScC]$/.test(event.key)) {
-          callbacks.current.onModeChange("INSERT");
-        }
         return false;
       },
     });
@@ -108,11 +123,27 @@ export function CellEditor({
       ],
     });
     view.current = new EditorView({ state, parent: host.current });
+    const editor = view.current;
+    const cm = vimEnabled ? getCM(editor) : null;
+    const handleVimModeChange = () => callbacks.current.onModeChange(currentVimMode(editor));
+    cm?.on("vim-mode-change", handleVimModeChange);
     return () => {
+      cm?.off("vim-mode-change", handleVimModeChange);
       view.current?.destroy();
       view.current = null;
     };
   }, [kind, vimEnabled, readOnly]);
+
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor) return;
+    if (!editing || readOnly) {
+      if (editor.hasFocus) editor.contentDOM.blur();
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => view.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing, kind, vimEnabled, readOnly]);
 
   useEffect(() => {
     const editor = view.current;
