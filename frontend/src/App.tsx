@@ -409,6 +409,7 @@ export default function App() {
   const pendingCellDeleteRef = useRef<PendingCellDelete | null>(null);
   const vimKeymapRef = useRef<HTMLDivElement | null>(null);
   const restoredWorkspace = useRef<string | null>(null);
+  const workspaceNavigationVersion = useRef(0);
   const kernelPoolRef = useRef<NotebookKernelPool | null>(null);
   if (kernelPoolRef.current === null) {
     kernelPoolRef.current = new NotebookKernelPool(
@@ -437,10 +438,14 @@ export default function App() {
     setWorkspaceSessionReady(false);
     replaceCellProposals({});
     const session = loadWorkspaceSession(workspace);
-    selectedByNotebook.current = session.selectedByNotebook;
-    openTabsRef.current = session.openTabs;
-    setOpenTabs(session.openTabs);
-    setTreeDirectory(session.treeDirectory);
+    const navigationAlreadyChosen = workspaceNavigationVersion.current > 0
+      || documentRef.current.notebookPath !== null;
+    if (!navigationAlreadyChosen) {
+      selectedByNotebook.current = session.selectedByNotebook;
+      openTabsRef.current = session.openTabs;
+      setOpenTabs(session.openTabs);
+      setTreeDirectory(session.treeDirectory);
+    }
     setLeftOpen(session.leftOpen);
     setRightOpen(session.rightOpen);
     const storedVimEnabled = storedVimPreference();
@@ -449,6 +454,7 @@ export default function App() {
     if (storedVimEnabled === null) storeVimPreference(restoredVimEnabled);
     setUserPreferencesReady(true);
     setCellViewsByNotebook(session.cellViewsByNotebook);
+    const navigationVersion = workspaceNavigationVersion.current;
     let cancelled = false;
     void (async () => {
       try {
@@ -465,7 +471,7 @@ export default function App() {
         if (cancelled) return;
         replaceCellProposals({});
       }
-      const candidates = [session.activePath, ...session.openTabs]
+      const candidates = (navigationAlreadyChosen ? [] : [session.activePath, ...session.openTabs])
         .filter((path, index, values): path is string => Boolean(path) && values.indexOf(path) === index);
       let restored = false;
       const unavailable = new Set<string>();
@@ -477,9 +483,11 @@ export default function App() {
         unavailable.add(path);
       }
       const remainingTabs = session.openTabs.filter((path) => !unavailable.has(path));
-      openTabsRef.current = remainingTabs;
-      setOpenTabs(remainingTabs);
-      if (!restored) resetNotebookDocument();
+      if (!navigationAlreadyChosen && workspaceNavigationVersion.current === navigationVersion) {
+        openTabsRef.current = remainingTabs;
+        setOpenTabs(remainingTabs);
+        if (!restored) resetNotebookDocument();
+      }
       if (!cancelled) setWorkspaceSessionReady(true);
     })();
     return () => { cancelled = true; };
@@ -1923,6 +1931,7 @@ export default function App() {
   }
 
   async function openNotebook(path: string): Promise<boolean> {
+    workspaceNavigationVersion.current += 1;
     if (path === documentRef.current.notebookPath) {
       rememberOpenTab(path);
       return true;
@@ -1933,6 +1942,7 @@ export default function App() {
   }
 
   async function closeNotebookTab(path: string) {
+    workspaceNavigationVersion.current += 1;
     const tabs = openTabsRef.current;
     if (!tabs.includes(path)) return;
     if (path !== documentRef.current.notebookPath) {

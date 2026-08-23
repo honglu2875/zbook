@@ -23,7 +23,7 @@ jobs:
   verify:
     name: Verify Python, web, and bundled app
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,6 +51,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Install Chromium for browser smoke tests
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
       - name: Check Python
         run: uv run --no-sync ruff check .
 
@@ -64,6 +68,10 @@ jobs:
       - name: Build web client
         working-directory: frontend
         run: npm run build
+
+      - name: Test real browser journeys
+        working-directory: frontend
+        run: npm run test:e2e
 
       - name: Verify committed web client
         shell: bash

@@ -7,7 +7,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "test": "vitest run",
+    "test": "vitest run src",
+    "test:e2e": "playwright test",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
@@ -28,6 +29,7 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.55.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.1.0",
