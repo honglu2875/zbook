@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { NotebookCell } from "./notebook";
 import {
   notebookSourceFields,
-  numberedSourceLines,
+  numberedSource,
   sourceLineCount,
   sourcePreview,
 } from "./notebookTools";
@@ -52,11 +52,10 @@ function stage(current: CellProposal | null, overrides: Record<string, unknown> 
 
 describe("cell proposals", () => {
   it("exposes exact one-based source lines without losing blanks", () => {
-    expect(numberedSourceLines("alpha\n\nbeta")).toEqual([
-      { lineNumber: 1, text: "alpha" },
-      { lineNumber: 2, text: "" },
-      { lineNumber: 3, text: "beta" },
-    ]);
+    expect(numberedSource("alpha\n\nbeta")).toBe("1|alpha\n2|\n3|beta");
+    expect(numberedSource("| operator\n    indented\n")).toBe(
+      "1|| operator\n2|    indented\n3|",
+    );
     expect(sourceLineCount("alpha\n\nbeta")).toBe(3);
     expect(sourcePreview("\n  \nalpha\nbeta")).toBe("alpha");
   });
@@ -66,13 +65,10 @@ describe("cell proposals", () => {
     expect(fields).toEqual({
       sourceLength: 11,
       lineCount: 3,
-      sourceLines: [
-        { lineNumber: 1, text: "alpha" },
-        { lineNumber: 2, text: "" },
-        { lineNumber: 3, text: "beta" },
-      ],
+      numberedSource: "1|alpha\n2|\n3|beta",
     });
     expect(fields).not.toHaveProperty("source");
+    expect(fields).not.toHaveProperty("sourceLines");
     expect(fields).not.toHaveProperty("sourcePreview");
     expect(notebookSourceFields("alpha\nbeta", false)).toEqual({
       sourceLength: 10,

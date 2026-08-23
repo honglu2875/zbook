@@ -167,14 +167,16 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("arguments returned in nextAction", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("once per small coherent hunk", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("proposal on the user's behalf", NOTEBOOK_TOOL_INSTRUCTIONS)
-        self.assertIn("sourceLines[].lineNumber", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("1|import numpy as np", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("Everything after the first | is exact source", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn(
-            "return sourceLines, not a duplicate source string",
+            "not a duplicate source field or per-line JSON objects",
             NOTEBOOK_TOOL_INSTRUCTIONS,
         )
         self.assertIn("never use insert_after", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("announce a successful lock", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("capability-discovery endpoint", tools["zbook_notebook_read"]["description"])
+        self.assertIn("numberedSource", tools["zbook_notebook_read"]["description"])
         self.assertGreater(CODEX_STREAM_LIMIT_BYTES, 64 * 1024)
 
     async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:
@@ -304,7 +306,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
 
     def test_dynamic_tool_response_rejects_an_oversized_payload(self) -> None:
         with patch("zbook.codex_handler._MAX_DYNAMIC_TOOL_RESPONSE_BYTES", 32):
-            response = dynamic_tool_response(True, {"sourceLines": ["x" * 64]})
+            response = dynamic_tool_response(True, {"numberedSource": f"1|{'x' * 64}"})
 
         self.assertFalse(response["success"])
         result = json.loads(response["contentItems"][0]["text"])

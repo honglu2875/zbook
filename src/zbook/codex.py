@@ -25,20 +25,25 @@ class CodexRequestError(RuntimeError):
 DEFAULT_REQUEST_TIMEOUT = 30.0
 CODEX_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
 
-NOTEBOOK_TOOL_INSTRUCTIONS = """You are embedded in Zbook. When reading or changing the open
+NOTEBOOK_TOOL_INSTRUCTIONS = r"""You are embedded in Zbook. When reading or changing the open
 notebook, use Zbook's notebook tools instead of editing the .ipynb file with shell commands or
 apply_patch. Start with zbook_notebook_read includeSource false to get the current notebookPath,
 documentRevision, selected cell, and compact metadata for every cell. Source reads are deliberately
 scoped: call read again with includeSource true and cellIds containing only relevant cells. They
-return sourceLines, not a duplicate source string. Before editing, pass the latest notebookPath and
-documentRevision as expectedRevision. For every stage_hunk, take startLine from
-sourceLines[].lineNumber and copy sourceLines[].text exactly into oldLines; never count displayed,
-wrapped, or blank lines yourself. If the user's request requires modifying existing cells, identify
-the relevant cells on the first source-light read and immediately lock the likely set with
-zbook_notebook_lock before further investigation, reasoning, or tool actions; expand the locked set
-later if needed. Keep those locks while you read, reason, stage edits, check, and revise across the
-turn; unlock cells early only when they are no longer relevant. Locks do not change documentRevision
-and release automatically when the turn ends.
+return one numberedSource string, not a duplicate source field or per-line JSON objects. Its format
+is one-based decimal line number, then |, then exact source text. For example:
+1|import numpy as np
+2|
+3|    values = np.arange(10)
+Everything after the first | is exact source, including indentation; a blank line is just 2|. Strip
+only the leading ^\d+\| prefix. Before editing, pass the latest notebookPath and documentRevision as
+expectedRevision. For every stage_hunk, take startLine from the numeric prefix and copy the exact
+text after | into oldLines; never count displayed, wrapped, or blank lines yourself. If the user's
+request requires modifying existing cells, identify the relevant cells on the first source-light
+read and immediately lock the likely set with zbook_notebook_lock before further investigation,
+reasoning, or tool actions; expand the locked set later if needed. Keep those locks while you read,
+reason, stage edits, check, and revise across the turn; unlock cells early only when they are no
+longer relevant. Locks do not change documentRevision and release automatically when the turn ends.
 
 For source edits to existing cells, never use replace_source in zbook_notebook_apply. Instead call
 zbook_notebook_propose once per small coherent hunk so the user sees the diff develop live. Each
@@ -61,9 +66,9 @@ For a reorder-only task, the initial source-light read is sufficient. Lock the c
 positions matter, then use move_after or swap operations in zbook_notebook_apply without resending
 source. Type, delete, and reorder operations remain atomic and saved immediately. The Zbook
 activity feed already shows reads, locks, proposals, and retries. Do not send assistant messages
-merely to narrate those
-routine steps or announce a successful lock; chain the tool calls silently and give one concise
-final response. Speak mid-turn only when user input is genuinely required or progress is blocked.
+merely to narrate those routine steps or announce a successful lock; chain the tool calls
+silently and give one concise final response. Speak mid-turn only when user input is genuinely
+required or progress is blocked.
 Shell tools remain appropriate for non-notebook workspace files."""
 
 NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
@@ -75,10 +80,10 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
             "document revision needed for edits. Use this instead of reading the .ipynb with shell "
             "commands. Start with includeSource false (the default) for compact metadata across "
             "the notebook. To inspect source, set includeSource true and pass cellIds for only the "
-            "relevant cells. A source-bearing read returns sourceLines only: an exact one-based "
-            "lineNumber/text view intended for stage_hunk addressing, without a duplicate source "
-            "string. Every response also reports the live availableActions tool inventory, making "
-            "this the capability-discovery endpoint."
+            "relevant cells. A source-bearing read returns one compact numberedSource string. "
+            "Every row is <one-based line>|<exact source>; strip only the first numeric prefix and "
+            "pipe before copying oldLines. Every response also reports the live availableActions "
+            "tool inventory, making this the capability-discovery endpoint."
         ),
         "inputSchema": {
             "type": "object",
@@ -86,7 +91,7 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
                 "includeSource": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Return exact sourceLines for the cells named by cellIds.",
+                    "description": "Return exact numberedSource for the cells named by cellIds.",
                 },
                 "cellIds": {
                     "type": "array",

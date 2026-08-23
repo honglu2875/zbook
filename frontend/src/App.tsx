@@ -40,6 +40,7 @@ import {
   applyNotebookOperations,
   NOTEBOOK_APPLY_TOOL,
   NOTEBOOK_LOCK_TOOL,
+  NOTEBOOK_NUMBERED_SOURCE_FORMAT,
   NOTEBOOK_PROPOSE_TOOL,
   NOTEBOOK_READ_TOOL,
   NOTEBOOK_SOURCE_READ_MAX_CELLS,
@@ -47,7 +48,7 @@ import {
   NOTEBOOK_SOURCE_READ_MAX_LINES,
   NotebookToolInputError,
   notebookSourceFields,
-  numberedSourceLines,
+  numberedSource,
   parseNotebookToolArguments,
   sourceLineCount,
   type NotebookToolContext,
@@ -1213,30 +1214,30 @@ export default function App() {
         .filter(({ cell }) => !requestedSet || requestedSet.has(cell.id));
       if (includeSource) {
         let sourceCharacters = 0;
-        let sourceLines = 0;
+        let sourceLineCountTotal = 0;
         for (const { cell } of returnedCells) {
           const proposal = notebookProposals[cell.id];
           const readableSource = proposal?.draftSource ?? cell.source;
           sourceCharacters += readableSource.length;
-          sourceLines += sourceLineCount(readableSource);
+          sourceLineCountTotal += sourceLineCount(readableSource);
           const acceptedCell = acceptedCellsById.get(cell.id);
           if (proposal?.state === "conflict" && acceptedCell) {
             sourceCharacters += acceptedCell.source.length;
-            sourceLines += sourceLineCount(acceptedCell.source);
+            sourceLineCountTotal += sourceLineCount(acceptedCell.source);
           }
         }
         if (sourceCharacters > NOTEBOOK_SOURCE_READ_MAX_CHARACTERS
-          || sourceLines > NOTEBOOK_SOURCE_READ_MAX_LINES) {
+          || sourceLineCountTotal > NOTEBOOK_SOURCE_READ_MAX_LINES) {
           return {
             success: false,
             result: {
               error: "source_payload_too_large",
               message: "That source selection is too large for one notebook tool response.",
               sourceCharacters,
-              sourceLines,
+              sourceLineCount: sourceLineCountTotal,
               limits: {
                 sourceCharacters: NOTEBOOK_SOURCE_READ_MAX_CHARACTERS,
-                sourceLines: NOTEBOOK_SOURCE_READ_MAX_LINES,
+                sourceLineCount: NOTEBOOK_SOURCE_READ_MAX_LINES,
               },
               ...(returnedCells.length > 1 ? {
                 nextAction: {
@@ -1263,7 +1264,8 @@ export default function App() {
           returnedCellCount: returnedCells.length,
           sourceIncluded: includeSource,
           sourceLineNumbering: includeSource ? "one_based" : null,
-          sourceRepresentation: includeSource ? "sourceLines_only" : null,
+          sourceRepresentation: includeSource ? "numberedSource" : null,
+          sourceFormat: includeSource ? NOTEBOOK_NUMBERED_SOURCE_FORMAT : null,
           lockedCellIds: codexLockedCellIds(current.notebookPath),
           pendingCellIds: Object.keys(notebookProposals),
           availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
@@ -1280,7 +1282,7 @@ export default function App() {
               ...(proposal ? {
                 pendingChange: proposalForRead(proposal, acceptedCell?.source ?? null, includeSource),
                 ...(proposal.state === "conflict" && includeSource
-                  ? { acceptedSourceLines: numberedSourceLines(acceptedCell?.source ?? "") }
+                  ? { acceptedNumberedSource: numberedSource(acceptedCell?.source ?? "") }
                   : {}),
               } : {}),
             };

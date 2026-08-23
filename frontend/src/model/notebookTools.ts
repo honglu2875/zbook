@@ -19,9 +19,15 @@ export interface NotebookToolResponse {
 export const NOTEBOOK_SOURCE_READ_MAX_CELLS = 20;
 export const NOTEBOOK_SOURCE_READ_MAX_CHARACTERS = 1_000_000;
 export const NOTEBOOK_SOURCE_READ_MAX_LINES = 50_000;
+export const NOTEBOOK_NUMBERED_SOURCE_FORMAT = (
+  "Each row is <one-based decimal line number>|<exact source text>; strip only the first ^\\d+\\| prefix."
+);
 
-export function numberedSourceLines(source: string): Array<{ lineNumber: number; text: string }> {
-  return source.split("\n").map((text, index) => ({ lineNumber: index + 1, text }));
+export function numberedSource(source: string): string {
+  return source
+    .split("\n")
+    .map((text, index) => `${index + 1}|${text}`)
+    .join("\n");
 }
 
 export function sourceLineCount(source: string): number {
@@ -51,11 +57,10 @@ export function sourcePreview(source: string, maximumLength = 160): string {
 
 export function notebookSourceFields(source: string, includeSource: boolean): Record<string, unknown> {
   if (includeSource) {
-    const sourceLines = numberedSourceLines(source);
     return {
       sourceLength: source.length,
-      lineCount: sourceLines.length,
-      sourceLines,
+      lineCount: sourceLineCount(source),
+      numberedSource: numberedSource(source),
     };
   }
   return {

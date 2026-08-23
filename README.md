@@ -81,7 +81,7 @@ Codex source edits and newly created cells are proposals, not immediate notebook
 
 When the turn finishes, each changed cell offers **Apply**, **Apply & Run** (for code cells), and **Reject** above its output. The notebook banner reports how many proposals remain and **Review next** moves through them in notebook order. Applying saves the proposed source atomically; rejecting restores the unchanged accepted view. Unresolved proposals survive a browser or app restart in the browser's IndexedDB. If the notebook changed on disk in the meantime, Zbook marks the proposal as conflicted instead of applying it over newer work.
 
-Deletion, type changes, and reordering still use the atomic structural notebook tool and save immediately. Those operations retain the existing review/undo banner. Notebook reads are source-light by default; Codex requests source only for relevant cell IDs, returned once as exact one-based `sourceLines` so it can address hunks without counting wrapped or blank lines itself.
+Deletion, type changes, and reordering still use the atomic structural notebook tool and save immediately. Those operations retain the existing review/undo banner. Notebook reads are source-light by default; Codex requests source only for relevant cell IDs, returned once as a compact `numberedSource` string (`1|exact source`) so it can address hunks without counting wrapped or blank lines itself.
 
 ## Development
 
