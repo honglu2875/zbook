@@ -235,11 +235,12 @@ test("drags a Matplotlib Slider and redraws its live figure", async ({ page }) =
   const first = page.locator(".notebook-cell").first();
   const second = page.locator(".notebook-cell").nth(1);
 
-  await first.getByRole("button", { name: "Run cell" }).click();
+  await page.getByRole("button", { name: "Run all" }).click();
   // ipympl layers an off-screen rendering canvas beneath its event canvas.
   // Exercise the foreground canvas that receives the user's pointer input.
   const canvas = first.locator(".jupyter-matplotlib-canvas-container canvas").last();
   await expect(canvas).toBeVisible({ timeout: 15_000 });
+  await expect(second.locator(".cell-output")).toContainText("run-0");
 
   const initialBounds = await canvas.boundingBox();
   expect(initialBounds).not.toBeNull();
