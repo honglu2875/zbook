@@ -63,7 +63,9 @@ test("Shift+Enter renders markdown and advances to the next cell", async ({ page
   const editor = first.locator(".cm-content");
   await editor.click();
   await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.insertText("## Updated `heading`");
+  await page.keyboard.insertText(
+    "## Updated `heading`\n\nAmbient paragraph.\n\n- First point\n- Second point",
+  );
   await page.keyboard.press("Shift+Enter");
 
   await expect(first.locator(".markdown-rendered")).toContainText("Updated heading");
@@ -75,6 +77,20 @@ test("Shift+Enter renders markdown and advances to the next cell", async ({ page
     code: Number.parseFloat(getComputedStyle(element.querySelector("code")!).fontSize),
   }));
   expect(fontSizes.code / fontSizes.heading).toBeGreaterThanOrEqual(.84);
+  const typography = await first.locator(".markdown-rendered").evaluate((element) => {
+    const paragraph = element.querySelector("p");
+    const items = element.querySelectorAll("li");
+    if (!paragraph || items.length < 2) throw new Error("Markdown list did not render");
+    return {
+      paragraphSize: Number.parseFloat(getComputedStyle(paragraph).fontSize),
+      listSize: Number.parseFloat(getComputedStyle(items[0]).fontSize),
+      listLineHeight: Number.parseFloat(getComputedStyle(items[0]).lineHeight),
+      itemGap: Number.parseFloat(getComputedStyle(items[1]).marginTop),
+    };
+  });
+  expect(typography.listSize).toBe(typography.paragraphSize);
+  expect(typography.listLineHeight / typography.listSize).toBeCloseTo(1.6, 1);
+  expect(typography.itemGap).toBe(3);
   await expect(second).toHaveClass(/is-selected/);
 });
 
