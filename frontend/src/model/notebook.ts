@@ -46,6 +46,31 @@ export interface NotebookCell {
   outputs: NotebookOutput[];
 }
 
+export function richOutputFromKernel(
+  outputType: "execute_result" | "display_data",
+  data: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+  executionCount: number | null,
+): RawNotebookOutput {
+  const output: RawNotebookOutput = {
+    output_type: outputType,
+    data,
+    metadata,
+  };
+  if (outputType === "execute_result") output.execution_count = executionCount;
+  return output;
+}
+
+function rawOutputForSave(output: NotebookOutput): RawNotebookOutput {
+  if (output.raw.output_type !== "display_data" || !("execution_count" in output.raw)) {
+    return output.raw;
+  }
+  // Older Zbook builds attached the cell count to display_data. nbformat permits
+  // that field only on execute_result, so repair affected notebooks as they save.
+  const { execution_count: _invalidExecutionCount, ...valid } = output.raw;
+  return valid;
+}
+
 function asText(value: unknown): string {
   if (Array.isArray(value)) return value.join("");
   return typeof value === "string" ? value : "";
@@ -115,7 +140,7 @@ export function notebookFromCells(
         return {
           ...common,
           execution_count: cell.executionCount,
-          outputs: cell.outputs.map((output) => output.raw),
+          outputs: cell.outputs.map(rawOutputForSave),
         };
       }
       return common;

@@ -1,4 +1,9 @@
-import { outputFromRaw, type NotebookOutput, type RawNotebookOutput } from "../model/notebook";
+import {
+  outputFromRaw,
+  richOutputFromKernel,
+  type NotebookOutput,
+  type RawNotebookOutput,
+} from "../model/notebook";
 import { jupyterUrl, jupyterWebsocketUrl, requestJson } from "./http";
 
 export type KernelState = "disconnected" | "starting" | "idle" | "busy" | "dead" | "error";
@@ -227,14 +232,14 @@ export class KernelClient {
         break;
       case "execute_result":
       case "display_data":
-        pending.outputs.push({
-          output_type: message.header.msg_type,
-          data: (content.data ?? {}) as Record<string, unknown>,
-          metadata: (content.metadata ?? {}) as Record<string, unknown>,
-          execution_count: typeof content.execution_count === "number"
+        pending.outputs.push(richOutputFromKernel(
+          message.header.msg_type,
+          (content.data ?? {}) as Record<string, unknown>,
+          (content.metadata ?? {}) as Record<string, unknown>,
+          typeof content.execution_count === "number"
             ? content.execution_count
             : pending.executionCount,
-        });
+        ));
         this.emit(pending);
         break;
       case "error":

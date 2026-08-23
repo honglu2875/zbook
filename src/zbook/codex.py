@@ -9,6 +9,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from . import __version__
+
 
 class CodexUnavailable(RuntimeError):
     pass
@@ -421,7 +423,7 @@ class CodexAppServer:
                     "clientInfo": {
                         "name": "zbook",
                         "title": "Zbook",
-                        "version": "0.1.0",
+                        "version": __version__,
                     },
                     "capabilities": {"experimentalApi": True},
                 },

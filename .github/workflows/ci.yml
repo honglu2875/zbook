@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Python, web, and bundled app
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          version: "0.12.5"
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Install web dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check Python
+        run: uv run --no-sync ruff check .
+
+      - name: Test Python and integrations
+        run: uv run --no-sync pytest -q
+
+      - name: Test web client
+        working-directory: frontend
+        run: npm test
+
+      - name: Build web client
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify committed web client
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain -- src/zbook/static)" ]]; then
+            git status --short -- src/zbook/static
+            echo "::error::Frontend build output is not committed"
+            exit 1
+          fi
