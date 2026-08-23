@@ -10,7 +10,7 @@ The main notebook loop is functional:
 
 - the file tree is served by Jupyter's Contents API and is rooted at the configured workspace;
 - notebooks can be created, opened in closable tabs, renamed inline by double-clicking a tab, deleted, uploaded, autosaved, and exported as `.ipynb`;
-- open tabs, the active notebook, selected cell, panel visibility, and Vim preference are restored per workspace;
+- open tabs, the active notebook, selected cell, and panel visibility are restored per workspace, while personal editor preferences persist across workspaces in the browser;
 - `Ctrl/Cmd-P` opens a workspace file picker and `Ctrl/Cmd-Shift-P` opens the command palette;
 - the workspace and Codex panes are draggable, keyboard-resizable, and remember their widths across reloads;
 - refreshing the workspace also reloads the active notebook from disk (after confirming before discarding local unsaved changes);
@@ -137,7 +137,7 @@ The workflow rejects a tag that does not match the package version, rebuilds and
 - `Enter` or `i` edits the selected cell.
 - `a` inserts a code cell above; `b` or `o` inserts one below. Hover or keyboard-focus the space between cells to choose Code or Markdown explicitly.
 - `Ctrl-Enter` runs in place, `Shift-Enter` runs and advances, and `Alt-Enter` runs and inserts.
-- Vim bindings can be toggled from the status bar. Vim receives its keymap before the standard CodeMirror keymaps.
+- Vim bindings are opt-in and can be toggled from the status bar. The preference persists across workspaces, and Vim receives its keymap before the standard CodeMirror keymaps.
 
 This two-level model avoids the classic conflict between Vim's modes and notebook-level commands: notebook navigation is a separate outer mode, and Vim operates only inside the active editor.
 

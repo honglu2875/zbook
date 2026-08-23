@@ -78,7 +78,8 @@ interface WorkspaceSession {
   treeDirectory: string;
   leftOpen: boolean;
   rightOpen: boolean;
-  vimEnabled: boolean;
+  // Kept only long enough to migrate workspace-scoped preferences from v0.1.0.
+  vimEnabled?: boolean;
   cellViewsByNotebook: Record<string, Record<string, CellViewState>>;
 }
 
@@ -102,6 +103,7 @@ const RIGHT_PANE_MAX = 620;
 const MIN_NOTEBOOK_WIDTH = 360;
 const LEFT_PANE_STORAGE = "zbook.layout.leftWidth";
 const RIGHT_PANE_STORAGE = "zbook.layout.rightWidth";
+const USER_PREFERENCES_STORAGE = "zbook.preferences.v1";
 const WORKSPACE_SESSION_VERSION = 1;
 const NOTEBOOK_AVAILABLE_ACTIONS = [
   { action: "read_cells", tool: NOTEBOOK_READ_TOOL },
@@ -132,6 +134,29 @@ function storePaneWidth(key: string, value: number) {
     window.localStorage.setItem(key, String(Math.round(value)));
   } catch {
     // Layout persistence is optional when browser storage is unavailable.
+  }
+}
+
+function storedUserPreferences(): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(USER_PREFERENCES_STORAGE) ?? "null") as Record<string, unknown> | null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function storedVimPreference(): boolean | null {
+  const value = storedUserPreferences().vimEnabled;
+  return typeof value === "boolean" ? value : null;
+}
+
+function storeVimPreference(vimEnabled: boolean) {
+  try {
+    const preferences = storedUserPreferences();
+    window.localStorage.setItem(USER_PREFERENCES_STORAGE, JSON.stringify({ ...preferences, vimEnabled }));
+  } catch {
+    // Preference persistence is optional when browser storage is unavailable.
   }
 }
 
@@ -184,7 +209,6 @@ function loadWorkspaceSession(workspace: string): WorkspaceSession {
     treeDirectory: "",
     leftOpen: true,
     rightOpen: true,
-    vimEnabled: true,
     cellViewsByNotebook: {},
   };
   try {
@@ -209,7 +233,7 @@ function loadWorkspaceSession(workspace: string): WorkspaceSession {
       treeDirectory: typeof parsed.treeDirectory === "string" ? parsed.treeDirectory : "",
       leftOpen: typeof parsed.leftOpen === "boolean" ? parsed.leftOpen : true,
       rightOpen: typeof parsed.rightOpen === "boolean" ? parsed.rightOpen : true,
-      vimEnabled: typeof parsed.vimEnabled === "boolean" ? parsed.vimEnabled : true,
+      vimEnabled: typeof parsed.vimEnabled === "boolean" ? parsed.vimEnabled : undefined,
       cellViewsByNotebook: storedCellViews(parsed.cellViewsByNotebook),
     };
   } catch {
@@ -229,7 +253,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mode, setMode] = useState("NAV");
-  const [vimEnabled, setVimEnabled] = useState(true);
+  const [vimEnabled, setVimEnabled] = useState(() => storedVimPreference() ?? false);
+  const [userPreferencesReady, setUserPreferencesReady] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [leftPaneWidth, setLeftPaneWidth] = useState(() => storedPaneWidth(
@@ -298,7 +323,11 @@ export default function App() {
     setTreeDirectory(session.treeDirectory);
     setLeftOpen(session.leftOpen);
     setRightOpen(session.rightOpen);
-    setVimEnabled(session.vimEnabled);
+    const storedVimEnabled = storedVimPreference();
+    const restoredVimEnabled = storedVimEnabled ?? session.vimEnabled ?? false;
+    setVimEnabled(restoredVimEnabled);
+    if (storedVimEnabled === null) storeVimPreference(restoredVimEnabled);
+    setUserPreferencesReady(true);
     setCellViewsByNotebook(session.cellViewsByNotebook);
     let cancelled = false;
     void (async () => {
@@ -335,7 +364,6 @@ export default function App() {
       treeDirectory,
       leftOpen,
       rightOpen,
-      vimEnabled,
       cellViewsByNotebook,
     };
     try {
@@ -343,7 +371,11 @@ export default function App() {
     } catch {
       // Session restoration is optional when browser storage is unavailable.
     }
-  }, [cellViewsByNotebook, leftOpen, notebookPath, openTabs, rightOpen, selectedId, status?.config.workspace, treeDirectory, vimEnabled, workspaceSessionReady]);
+  }, [cellViewsByNotebook, leftOpen, notebookPath, openTabs, rightOpen, selectedId, status?.config.workspace, treeDirectory, workspaceSessionReady]);
+
+  useEffect(() => {
+    if (userPreferencesReady) storeVimPreference(vimEnabled);
+  }, [userPreferencesReady, vimEnabled]);
 
   useEffect(() => () => {
     void kernelClient.current?.shutdown();
