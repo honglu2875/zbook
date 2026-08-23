@@ -146,6 +146,42 @@ test("keeps both side panels usable as narrow-screen drawers", async ({ page }) 
   await expect(codexPanel).toBeVisible();
 });
 
+test("keeps notebook chrome clear at very narrow widths", async ({ page }) => {
+  await openNotebook(page, "core.ipynb");
+  for (const label of ["Toggle files", "Toggle Codex"]) {
+    const toggle = page.getByRole("button", { name: label });
+    if (await toggle.getAttribute("aria-pressed") === "true") await toggle.click();
+  }
+
+  const firstCell = page.locator(".notebook-cell").first();
+  await firstCell.getByRole("button", { name: "Run cell" }).click();
+  await expect(firstCell.locator(".execution-count")).toHaveText("[1]");
+  await page.setViewportSize({ width: 320, height: 760 });
+
+  const geometry = await page.evaluate(() => {
+    const bounds = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`Missing responsive-test element: ${selector}`);
+      const box = element.getBoundingClientRect();
+      return { top: box.top, right: box.right, bottom: box.bottom, left: box.left };
+    };
+    const scroll = document.querySelector(".notebook-scroll");
+    if (!scroll) throw new Error("Missing notebook scroll container");
+    return {
+      title: bounds(".notebook-title"),
+      actions: bounds(".notebook-document-actions"),
+      count: bounds(".execution-count"),
+      cellBody: bounds(".cell-body"),
+      scrollWidth: scroll.scrollWidth,
+      clientWidth: scroll.clientWidth,
+    };
+  });
+
+  expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.actions.top);
+  expect(geometry.count.right).toBeLessThanOrEqual(geometry.cellBody.left);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+});
+
 test("toggles a scaled image at native size with a single click", async ({ page }) => {
   await openNotebook(page, "image.ipynb");
 

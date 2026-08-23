@@ -84,7 +84,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 }
 
 .brand { display: flex; align-items: center; justify-self: start; gap: 8px; color: #a7abb0; font-size: 12px; font-weight: 520; }
-.brand-mark { display: block; width: 18px; height: 18px; flex: 0 0 auto; transform: translateY(-1px); }
+.brand-mark { display: block; width: 19px; height: 19px; flex: 0 0 auto; }
 
 .title-actions { justify-self: end; display: flex; align-items: center; gap: 3px; }
 .title-actions button, .tabbar button, .icon-button {
@@ -314,15 +314,15 @@ body.is-resizing-pane .app-shell { transition: none; }
 
 .notebook-scroll { overflow: auto; scrollbar-color: #373b3e transparent; scrollbar-width: thin; }
 .notebook-canvas { width: min(100%, 920px); min-height: 100%; margin: 0 auto; padding: 39px 42px 0; }
-.notebook-title-row { display: flex; align-items: center; justify-content: space-between; margin: 0 0 28px 58px; }
-.notebook-title { display: flex; align-items: baseline; min-width: 0; }
-.notebook-title-row h1 { margin: 0; color: #e2e3e5; font-size: 19px; font-weight: 610; letter-spacing: -.02em; }
-.notebook-title-row h1 + span { margin-left: 1px; color: #6c7278; font-size: 12px; }
-.save-state { color: #5f666c; font-size: 10.5px; }
+.notebook-title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 28px 58px; }
+.notebook-title { display: flex; align-items: baseline; min-width: 0; max-width: 100%; flex: 1 1 auto; overflow: hidden; }
+.notebook-title-row h1 { min-width: 0; margin: 0; overflow: hidden; color: #e2e3e5; font-size: 19px; font-weight: 610; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+.notebook-title-row h1 + span { flex: 0 0 auto; margin-left: 1px; color: #6c7278; font-size: 12px; }
+.save-state { flex: 0 0 auto; color: #5f666c; font-size: 10.5px; white-space: nowrap; }
 .save-state.save-dirty { color: #9d855f; }
 .save-state.save-error { color: var(--red); }
 .save-state.save-conflict { color: #d18d72; }
-.notebook-document-actions { display: flex; align-items: center; gap: 5px; }
+.notebook-document-actions { display: flex; align-items: center; min-width: 0; flex: 0 0 auto; gap: 5px; }
 .notebook-document-actions .save-state { margin-right: 5px; }
 .notebook-document-actions button { display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 7px; border: 1px solid #303438; border-radius: 4px; background: #1d2022; color: #797f85; font-size: 10px; cursor: pointer; }
 .notebook-document-actions button:hover:not(:disabled) { border-color: #45423c; color: #c5c8cb; }
@@ -921,14 +921,6 @@ body.is-resizing-pane .app-shell { transition: none; }
   .pane-resizer-left { display: none; }
   .app-shell.has-right { --right-width: min(var(--right-pane-width, 348px), 280px); }
   .notebook-canvas { padding: 28px 14px 0; }
-  .notebook-title-row { margin-left: 39px; }
-  .codex-edit-review { margin-left: 39px; }
-  .notebook-cell { grid-template-columns: 39px minmax(0, 1fr); }
-  .notebook-cell::before { left: 39px; }
-  .cell-rail { left: 38px; }
-  .cell-title-bar { grid-template-columns: 39px minmax(0, 1fr) auto; }
-  .cell-insert-controls { width: calc(100% - 39px); margin-left: 39px; }
-  .cell-gutter { padding-left: 5px; }
 }
 
 @media (max-width: 620px) {
@@ -961,5 +953,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 }
 
 @media (max-width: 520px) {
+  .notebook-title-row { align-items: stretch; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .notebook-document-actions { flex-wrap: wrap; }
   .vim-keymap-popover { position: fixed; right: 9px; bottom: 27px; left: 9px; width: auto; }
 }
