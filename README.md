@@ -78,14 +78,14 @@ zbook run -- --ZbookApp.venv=/path/to/project/.venv
 
 The environment control at the bottom of the workspace pane can switch among detected `uv` environments, accept a path, and install or uninstall packages live. Each notebook owns its kernel, so changing tabs does not accidentally reuse another notebook's execution state.
 
-Interactive controls use the standard Jupyter widget protocol. Core `ipywidgets` controls work when `ipywidgets` is installed in the selected environment. For a draggable Matplotlib figure or `matplotlib.widgets.Slider`, install `ipympl` in that environment and select the widget backend in the notebook:
+Interactive controls use the standard Jupyter widget protocol. Core `ipywidgets` controls work when `ipywidgets` is installed in the selected environment. For a draggable Matplotlib figure or `matplotlib.widgets.Slider`, install `ipympl` in that environment and select the widget backend before creating the figure:
 
 ```python
 %matplotlib widget
 import matplotlib.pyplot as plt
 ```
 
-The normal inline backend intentionally remains static. Zbook bundles the core Jupyter controls and `ipympl`; outputs from other third-party widget libraries report a clear unsupported-module message instead of loading arbitrary JavaScript from the network.
+The normal inline backend intentionally remains static: creating a `Slider` while it is active produces a zoomable PNG, not an interactive canvas. Zbook bundles the core Jupyter controls and the matching `ipympl` frontend; outputs from other third-party widget libraries report a clear unsupported-module message instead of loading arbitrary JavaScript from the network.
 
 ## Notebook workflow
 

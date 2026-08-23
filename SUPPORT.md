@@ -9,7 +9,7 @@ This document defines the compatibility and security boundary Zbook intends to c
 | Python | 3.11 or newer | Package metadata and automated tests |
 | Jupyter Server | 2.15 through the current 2.x line | Locked integration tests |
 | Notebook format | nbformat 4 | Read, edit, execute, and export tests |
-| Interactive output | ipywidgets 8 and current `ipympl` | Real widget protocol test and manual Matplotlib verification |
+| Interactive output | ipywidgets 8 and current `ipympl` | Real widget protocol and Matplotlib slider browser tests |
 | uv | A current CLI available on `PATH` | Startup diagnostics and environment tests |
 | Browser | Current Chromium-based desktop browser | Automated Playwright journeys |
 | Codex | A Codex CLI with `app-server` support | Protocol tests and startup diagnostics |
