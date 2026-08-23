@@ -26,7 +26,7 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ### Fixed
 
-- Codex send and stop controls are optically centered, typographic chrome symbols use a consistent SVG grid, and the browser tab and title bar share one parity-aligned Zbook mark.
+- Codex send and stop controls are optically centered, typographic chrome symbols use a consistent SVG grid, and the browser tab and title bar share one pixel-centered Zbook mark.
 - The new-notebook tab control is borderless at rest and shares the tab-close hover treatment.
 - Narrow notebook layouts keep document status controls separate from the title and preserve the full execution-count gutter.
 - Invalid `execution_count` properties are removed from `display_data` outputs before saving.
