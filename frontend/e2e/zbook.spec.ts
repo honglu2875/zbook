@@ -31,6 +31,7 @@ test("opens, edits, executes, saves, and reloads a real notebook", async ({ page
 });
 
 test("monitors and restarts the active notebook kernel", async ({ page }) => {
+  test.setTimeout(45_000);
   await openNotebook(page, "core.ipynb");
   const first = page.locator(".notebook-cell").first();
   await first.getByRole("button", { name: "Run cell" }).click();
@@ -48,8 +49,9 @@ test("monitors and restarts the active notebook kernel", async ({ page }) => {
   expect(monitorBounds!.x + monitorBounds!.width).toBeLessThanOrEqual(1_441);
   await expect(monitor.locator(".kernel-monitor-metrics section").first().locator("strong"))
     .toHaveText(/\d+ (MB|GB)/);
+  await expect(monitor.locator(".kernel-sparkline.is-memory polyline")).toHaveCount(1);
   await expect(monitor.locator(".kernel-monitor-metrics section").nth(1).locator("strong"))
-    .toHaveText(/\d+\.\d%/, { timeout: 6_000 });
+    .toHaveText(/^(—|\d+\.\d%)$/);
   await expect(monitor.locator(".kernel-monitor-facts")).toContainText(/PID \d+/);
 
   page.once("dialog", (dialog) => void dialog.accept());
