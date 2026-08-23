@@ -4,30 +4,59 @@
 [![CI](https://github.com/honglu2875/zbook/actions/workflows/ci.yml/badge.svg)](https://github.com/honglu2875/zbook/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/honglu2875/zbook/blob/main/LICENSE)
 
-**A small local notebook where Codex works on cells as cells.**
+**A small local notebook with a built-in Codex assistant.**
 
-Zbook is a fast, keyboard-first notebook for local work. Its defining feature is native Codex-to-notebook interaction: Codex reads and changes live cells through structured notebook tools instead of shell-editing `.ipynb` JSON and waiting for a Jupyter frontend to reload it. It can lock relevant cells, read compact numbered source, stream reviewable diffs, insert or reorder cells, and leave the final Apply, Apply & Run, or Reject decision with you. This avoids stale refreshes, notebook-JSON churn, and human/agent editing races—the awkward parts of using a filesystem-oriented coding agent through Jupyter or a thin chat plugin.
-
-The rest stays intentionally familiar: ordinary `.ipynb` files, IPython kernels, code and Markdown cells, rich outputs, and a workspace tree inside a deliberately small interface with first-class `uv` integration.
+Zbook is a fast, keyboard-first AI-assisted notebook for local research work. Its defining features are
+- Native Codex-to-notebook interaction;
+- `uv` managed environments/kernels;
+- A UI that has a different style than Jupyter Notebooks.
 
 Codex runs through the locally installed Codex CLI. It can use your existing CLI login and subscription; Zbook does not require a separate API key.
 
+**Quick start**
+```bash
+uv tool install zbook
+zbook check
+zbook run
+```
+
 [Watch the short demo](https://github.com/user-attachments/assets/97e3538c-51c9-48e7-a42a-bf471219a79e)
+
+## Where are my standard notebook features?
+
+I intentionally made the UI as simple as possible, and here are the easy-to-ignore corners where you should actually pay attention:
+
+### Lower right: kernel monitoring
+The kernel chip at the lower right of the window can expand into a small monitoring panel:
+
+<img width="496" height="430" alt="kernel_monitoring" src="https://github.com/user-attachments/assets/b7342ea3-229d-4faa-b381-6b0d01de8a8c" />
+
+
+### Lower left: VIM keybinding toggle and key flashcard
+The chips at the lower left corner can be toggled to enable VIM binding and a flashcard on some keybindings:
+
+<img width="420" height="450" alt="VIM_keybindings" src="https://github.com/user-attachments/assets/c26c795b-6cea-4e2c-8c51-0b43bd7d1647" />
+
+
+### Upper right: left/right panel control and Codex info
+The upper right corner has the panel toggles (controlling the directory tree to the left and the codex panel to the right) that are very easy
+to miss. The Codex panel is also there with history and account details.
+
+<img width="345" height="427" alt="panels_and_codex" src="https://github.com/user-attachments/assets/31e1f25a-1f12-4fec-95f8-3898a8213dd6" />
 
 ## What is included
 
-- Native Codex cell tools with focused reads, turn-scoped locks, streamed proposals, structural edits, cell reordering, and capability discovery.
-- A compact React and CodeMirror notebook editor with Python highlighting, Markdown rendering, multiple tabs, cell reordering, collapsible outputs, `#@title` cell headings, and optional Vim bindings.
+- Native Codex cell tools (cell- and line-based reading/editing/).
+- Reviewable Codex edits: streamed red/green proposals stay staged until approved/rejected.
+- A compact React and CodeMirror notebook editor with Python highlighting, Markdown rendering, `#@title` cell headings, and optional Vim bindings.
 - A workspace-scoped file tree with create, rename, upload, delete, refresh, and external-change protection.
-- One IPython kernel per open notebook, launched from a selectable `uv` environment.
-- Live Jupyter widgets, including interactive Matplotlib figures through `ipympl`.
+- IPython kernels and Jupyter Server backend.
 - Live package installation and removal without coupling the notebook environment to Zbook's own runtime.
 - A persistent Codex panel using your own CLI subscription, with model and effort controls, account status, thread history, and selected-line context.
-- Reviewable Codex edits: streamed red/green proposals stay separate from accepted notebook content until you apply, apply and run, or reject them.
 
 Zbook intentionally does not include terminals, debuggers, dashboards, extension marketplaces, multi-user collaboration, or the rest of the JupyterLab surface area. It is a local, AI-guided notebook rather than a general IDE.
 
-## Quick start
+## Starting Zbook
 
 Zbook requires Python 3.11 or newer and [uv](https://docs.astral.sh/uv/getting-started/installation/). [Codex CLI](https://developers.openai.com/codex/cli/) is optional, but required for the assistant panel.
 
