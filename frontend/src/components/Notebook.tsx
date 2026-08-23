@@ -13,9 +13,10 @@ import {
   HeightIcon,
   LockIcon,
   PlayIcon,
+  PlusIcon,
+  PromptIcon,
   RefreshIcon,
   SaveIcon,
-  SparkIcon,
   TrashIcon,
 } from "./icons";
 
@@ -401,7 +402,7 @@ export function Notebook({
                         }
                       }}
                     >
-                      <SparkIcon />
+                      <PromptIcon />
                       {activeSelection.selection.tooLarge ? "Limit" : "Ask"}
                     </button>
                   )}
@@ -507,8 +508,8 @@ export function Notebook({
                 </div>
               </article>
               <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>
-                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "code")}><span>+</span> Code</button>
-                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "markdown")}><span>+</span> Markdown</button>
+                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "code")}><PlusIcon />Code</button>
+                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "markdown")}><PlusIcon />Markdown</button>
               </div>
             </div>
           );

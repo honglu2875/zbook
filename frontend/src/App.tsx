@@ -10,7 +10,18 @@ import { CodexPanel } from "./components/CodexPanel";
 import { CommandPalette, type PaletteCommand, type PaletteFile } from "./components/CommandPalette";
 import { EnvironmentPanel } from "./components/EnvironmentPanel";
 import { FileTree } from "./components/FileTree";
-import { BranchIcon, CloseIcon, PanelIcon, PlayIcon, PlusIcon, SearchIcon, StopIcon } from "./components/icons";
+import {
+  BranchIcon,
+  CloseIcon,
+  NotebookIcon,
+  PanelIcon,
+  PanelRightIcon,
+  PlayIcon,
+  PlusIcon,
+  SearchIcon,
+  StopIcon,
+  ZbookMarkIcon,
+} from "./components/icons";
 import {
   Notebook,
   type CellViewOption,
@@ -2878,7 +2889,7 @@ export default function App() {
       style={appShellStyle}
     >
       <header className="titlebar">
-        <div className="brand"><i><span>Z</span></i><span>zbook</span></div>
+        <div className="brand"><ZbookMarkIcon className="brand-mark" /><span>zbook</span></div>
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => toggleSidePanel("left")} aria-label="Toggle files" aria-pressed={leftOpen}><PanelIcon /></button>
           <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title="Quick open (Ctrl/Cmd-P)"><SearchIcon /></button>
@@ -2887,7 +2898,7 @@ export default function App() {
           ) : (
             <button className="run-all" disabled={!notebookPath || notebookToolLocked || !status?.kernel.ready} onClick={() => void runAll()}><PlayIcon />Run all</button>
           )}
-          <button className={rightOpen ? "is-active" : ""} onClick={() => toggleSidePanel("right")} aria-label="Toggle Codex" aria-pressed={rightOpen}><PanelIcon /></button>
+          <button className={rightOpen ? "is-active" : ""} onClick={() => toggleSidePanel("right")} aria-label="Toggle Codex" aria-pressed={rightOpen}><PanelRightIcon /></button>
         </div>
       </header>
       {(leftOpen || rightOpen) && (
@@ -2955,7 +2966,7 @@ export default function App() {
                 >
                   {renamingTabPath === path ? (
                     <div className="tab-rename-editor" role="tab" aria-selected={active}>
-                      <span className="notebook-icon">▦</span>
+                      <NotebookIcon className="notebook-icon" />
                       <input
                         className="tab-rename-input"
                         value={renamingTabName}
@@ -2997,7 +3008,7 @@ export default function App() {
                       disabled={busy || notebookToolLocked || kernelState === "busy" || kernelState === "starting"}
                       onClick={() => void openNotebook(path)}
                     >
-                      <span className="notebook-icon">▦</span>
+                      <NotebookIcon className="notebook-icon" />
                       <span className="tab-label">{basename(path)}</span>
                       <i className={active && saveState !== "saved" ? "is-dirty" : ""} />
                     </button>
@@ -3067,7 +3078,7 @@ export default function App() {
           />
         ) : (
           <main className="empty-workspace">
-            <div><span>▦</span><h1>Open a notebook</h1><p>Choose an `.ipynb` file from the workspace or create a new one.</p><button onClick={() => void newNotebook()}><PlusIcon />New notebook</button></div>
+            <div><NotebookIcon className="empty-workspace-mark" /><h1>Open a notebook</h1><p>Choose an `.ipynb` file from the workspace or create a new one.</p><button onClick={() => void newNotebook()}><PlusIcon />New notebook</button></div>
           </main>
         )}
       </section>

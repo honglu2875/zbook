@@ -14,7 +14,16 @@ import {
   type NotebookToolResponse,
 } from "../model/notebookTools";
 import { websocketUrl } from "../services/http";
-import { ChevronIcon, CloseIcon, HistoryIcon, RefreshIcon, SparkIcon, StopIcon } from "./icons";
+import {
+  ChevronIcon,
+  CloseIcon,
+  HistoryIcon,
+  PlusIcon,
+  PromptIcon,
+  RefreshIcon,
+  SendIcon,
+  StopIcon,
+} from "./icons";
 
 type MessageRole = "user" | "assistant" | "activity";
 type ConnectionState = "checking" | "connecting" | "ready" | "error";
@@ -1154,7 +1163,7 @@ export function CodexPanel({
     <aside className="codex-panel" aria-label="Codex assistant">
       <div className="codex-heading">
         <span className="codex-brand">
-          <SparkIcon />CODEX
+          <PromptIcon />CODEX
           <i
             className={`connection-dot ${ready ? "is-ready" : ""}`}
             title={connection === "checking" ? "Checking Codex" : connection === "connecting" ? "Connecting to Codex" : ready ? `${accountLabel ?? "Codex"} connected` : "Codex needs attention"}
@@ -1200,7 +1209,7 @@ export function CodexPanel({
         <section ref={threadPopover} className="codex-thread-popover" role="dialog" aria-label="Zbook Codex threads">
           <header>
             <div><strong>Threads</strong><span>This workspace</span></div>
-            <button type="button" onClick={newThread} disabled={busy}><span>+</span> New</button>
+            <button type="button" onClick={newThread} disabled={busy}><PlusIcon />New</button>
           </header>
           <div className="thread-list">
             {threadStore.threads.length ? threadStore.threads.map((thread) => (
@@ -1347,7 +1356,7 @@ export function CodexPanel({
           <section className="prompt-selection-quote" aria-label="Quoted notebook selection">
             <header>
               <span>
-                <SparkIcon />
+                <PromptIcon />
                 <strong>{selectionLineLabel(selectionQuote)}</strong>
                 <em>{selectionQuote.notebookPath.split("/").at(-1)} · {selectionQuote.cellKind}</em>
               </span>
@@ -1390,7 +1399,7 @@ export function CodexPanel({
           {busy ? (
             <button type="button" className="send-button stop-codex" onClick={() => { setStage("Stopping"); socketRef.current?.send(JSON.stringify({ type: "interrupt" })); }} aria-label="Stop Codex" title="Stop Codex"><StopIcon /></button>
           ) : (
-            <button type="submit" className="send-button" disabled={!prompt.trim() || !ready} aria-label="Send to Codex"><span aria-hidden="true">↑</span></button>
+            <button type="submit" className="send-button" disabled={!prompt.trim() || !ready} aria-label="Send to Codex"><SendIcon /></button>
           )}
         </div>
       </form>

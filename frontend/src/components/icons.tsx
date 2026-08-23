@@ -25,14 +25,17 @@ export const PlayIcon = (props: IconProps) => (
 export const PlusIcon = (props: IconProps) => (
   <Icon {...props}><path d="M8 2.5v11M2.5 8h11" /></Icon>
 );
-export const SparkIcon = (props: IconProps) => (
-  <Icon {...props}><path d="M8 1.5c.45 3.5 2 5.05 5.5 5.5C10 7.45 8.45 9 8 12.5 7.55 9 6 7.45 2.5 7 6 6.55 7.55 5 8 1.5Z" /></Icon>
+export const PromptIcon = (props: IconProps) => (
+  <Icon {...props}><path d="m3 4.5 3.5 3.5L3 11.5M8.5 11.5H13" /></Icon>
 );
 export const BranchIcon = (props: IconProps) => (
   <Icon {...props}><circle cx="4" cy="3" r="1.5" /><circle cx="12" cy="4" r="1.5" /><circle cx="4" cy="13" r="1.5" /><path d="M4 4.5v7M5.5 8h2.2A4.3 4.3 0 0 0 12 3.7" /></Icon>
 );
 export const PanelIcon = (props: IconProps) => (
   <Icon {...props}><rect x="1.75" y="2" width="12.5" height="12" rx="1" /><path d="M5.5 2v12" /></Icon>
+);
+export const PanelRightIcon = (props: IconProps) => (
+  <Icon {...props}><rect x="1.75" y="2" width="12.5" height="12" rx="1" /><path d="M10.5 2v12" /></Icon>
 );
 export const RefreshIcon = (props: IconProps) => (
   <Icon {...props}><path d="M13 5V2.5l-1 1A5.5 5.5 0 1 0 13.3 9" /><path d="M13 2.5h-2.5" /></Icon>
@@ -51,6 +54,9 @@ export const RenameIcon = (props: IconProps) => (
 );
 export const StopIcon = (props: IconProps) => (
   <Icon {...props}><rect x="4" y="4" width="8" height="8" /></Icon>
+);
+export const SendIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M8 13V3.5M4.75 6.75 8 3.5l3.25 3.25" /></Icon>
 );
 export const UploadIcon = (props: IconProps) => (
   <Icon {...props}><path d="M8 14V4M5 7l3-3 3 3M2.5 2h11" /></Icon>
@@ -78,4 +84,13 @@ export const OutputIcon = (props: IconProps) => (
 );
 export const LockIcon = (props: IconProps) => (
   <Icon {...props}><rect x="3" y="7" width="10" height="7" rx="1" /><path d="M5 7V5a3 3 0 0 1 6 0v2M8 10v1.5" /></Icon>
+);
+export const NotebookIcon = (props: IconProps) => (
+  <Icon {...props}><rect x="2" y="1.75" width="12" height="12.5" rx="1.25" /><path d="M5.25 1.75v12.5M8 5h3.5M8 8h3.5M8 11h2.25" /></Icon>
+);
+export const ZbookMarkIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect className="zbook-mark-frame" x="1.5" y="1.5" width="13" height="13" rx="2" />
+    <path className="zbook-mark-letter" d="M5 5.4h6l-6 6.5h6" />
+  </Icon>
 );
