@@ -453,28 +453,31 @@ body.is-resizing-pane .app-shell { transition: none; }
 .cell-title-lock { display: grid; place-items: center; width: 18px; height: 18px; color: #b18c50; }
 .cell-title-lock svg { width: 10px; height: 10px; }
 .cell-source { min-width: 0; }
-.cell-editor-shell { position: relative; min-width: 0; }
 .cell-editor { position: relative; min-height: 48px; }
 .cell-selection-action {
   position: absolute;
   z-index: 24;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  min-height: 23px;
-  padding: 3px 7px;
+  left: 4px;
+  width: 49px;
+  min-height: 20px;
+  padding: 2px 4px;
   border: 1px solid #585044;
   border-radius: 999px;
   background: #292720f2;
   color: #d0ae73;
-  font: 9.5px/1 var(--font-ui);
+  font: 8.5px/1 var(--font-ui);
   box-shadow: 0 5px 15px #0007;
   cursor: pointer;
+  transition: top 60ms ease-out, border-color 80ms, background 80ms, color 80ms;
   animation: selection-action-in 90ms ease-out;
 }
 .cell-selection-action:hover:not(:disabled) { border-color: #7a684e; background: #322e25; color: #e1bf81; }
 .cell-selection-action:disabled { border-color: #4a3637; background: #2a2223f2; color: #b47779; cursor: default; }
-.cell-selection-action svg { width: 11px; height: 11px; fill: currentColor; stroke: currentColor; }
+.cell-selection-action svg { width: 9px; height: 9px; fill: currentColor; stroke: currentColor; }
 @keyframes selection-action-in { from { opacity: 0; transform: translateY(2px) scale(.98); } }
 .notebook-cell.has-codex-proposal .cell-body { border-color: transparent; background: transparent; }
 .notebook-cell.has-codex-proposal .cm-editor.cm-merge-b .cm-changedLine,

@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { CellProposal } from "../model/cellProposals";
 import type { CellKind, NotebookCell } from "../model/notebook";
-import type { CellTextSelection } from "../model/selectionContext";
-import { CellEditor } from "./CellEditor";
+import {
+  selectionLineLabel,
+  type CellTextSelection,
+} from "../model/selectionContext";
+import { CellEditor, type CellSelectionAction } from "./CellEditor";
 import {
   ChevronIcon,
   DownloadIcon,
@@ -12,6 +15,7 @@ import {
   PlayIcon,
   RefreshIcon,
   SaveIcon,
+  SparkIcon,
   TrashIcon,
 } from "./icons";
 
@@ -21,6 +25,10 @@ export interface CellViewState {
   cellCollapsed?: boolean;
 }
 export type CellViewOption = keyof CellViewState;
+
+interface NotebookSelectionAction extends CellSelectionAction {
+  cellId: string;
+}
 
 interface NotebookProps {
   path: string;
@@ -201,6 +209,7 @@ export function Notebook({
   onStopEdit,
   onQuoteSelection,
 }: NotebookProps) {
+  const [selectionAction, setSelectionAction] = useState<NotebookSelectionAction | null>(null);
   const filename = path.split("/").at(-1) ?? path;
   const title = filename.endsWith(".ipynb") ? filename.slice(0, -6) : filename;
   const saveLabel = {
@@ -259,6 +268,7 @@ export function Notebook({
           const cellTitle = titleFromSource({ ...cell, source: displaySource });
           const titleCollapsed = Boolean(cellTitle && view.cellCollapsed && !proposal);
           const canLimitOutput = cell.outputs.length > 0 && !titleCollapsed;
+          const activeSelection = selectionAction?.cellId === cell.id ? selectionAction : null;
           return (
             <div className="notebook-cell-group" key={cell.id}>
               <article
@@ -361,6 +371,38 @@ export function Notebook({
                   ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>)}
                   {!titleCollapsed && codexLocked && <span className="cell-codex-lock" title="Locked by Codex for this turn"><LockIcon /></span>}
                   {!titleCollapsed && view.outputLimited && <span className="cell-scroll-state" aria-hidden="true">↕</span>}
+                  {!titleCollapsed && activeSelection && (
+                    <button
+                      type="button"
+                      className="cell-selection-action"
+                      style={{ top: activeSelection.top }}
+                      disabled={activeSelection.selection.tooLarge}
+                      title={activeSelection.selection.tooLarge
+                        ? "Select no more than 200 lines or 20,000 characters"
+                        : `Quote ${selectionLineLabel(activeSelection.selection)} to Codex`}
+                      aria-label={activeSelection.selection.tooLarge
+                        ? "Selection is too large to quote to Codex"
+                        : `Ask Codex about ${selectionLineLabel(activeSelection.selection).toLowerCase()}`}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onDoubleClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (!activeSelection.selection.tooLarge) {
+                          onQuoteSelection(cell.id, cell.kind, activeSelection.selection);
+                        }
+                      }}
+                    >
+                      <SparkIcon />
+                      {activeSelection.selection.tooLarge ? "Limit" : "Ask"}
+                    </button>
+                  )}
                 </div>
                 <div className="cell-body">
                   {!titleCollapsed && (
@@ -394,11 +436,13 @@ export function Notebook({
                               onModeChange(nextMode);
                               if (nextMode === "NAV") onStopEdit(cell.id);
                             }}
-                            onQuoteSelection={(selection) => onQuoteSelection(
-                              cell.id,
-                              cell.kind,
-                              selection,
-                            )}
+                            onSelectionActionChange={(action) => setSelectionAction((current) => (
+                              action
+                                ? { ...action, cellId: cell.id }
+                                : current?.cellId === cell.id
+                                  ? null
+                                  : current
+                            ))}
                           />
                         )}
                       </div>

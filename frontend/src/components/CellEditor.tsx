@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { unifiedMergeView } from "@codemirror/merge";
@@ -10,15 +10,12 @@ import { indentWithTab } from "@codemirror/commands";
 import type { CellKind } from "../model/notebook";
 import {
   selectionFromSource,
-  selectionLineLabel,
   type CellTextSelection,
 } from "../model/selectionContext";
 import { zbookTheme } from "../editor/theme";
-import { SparkIcon } from "./icons";
 
-interface SelectionAction {
+export interface CellSelectionAction {
   selection: CellTextSelection;
-  left: number;
   top: number;
 }
 
@@ -33,7 +30,7 @@ interface CellEditorProps {
   onRun: (advance: boolean, insert: boolean) => void;
   onFocus: () => void;
   onModeChange: (mode: string) => void;
-  onQuoteSelection: (selection: CellTextSelection) => void;
+  onSelectionActionChange: (action: CellSelectionAction | null) => void;
 }
 
 function currentVimMode(editor: EditorView): string {
@@ -54,15 +51,13 @@ export function CellEditor({
   onRun,
   onFocus,
   onModeChange,
-  onQuoteSelection,
+  onSelectionActionChange,
 }: CellEditorProps) {
-  const shell = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const synchronizingSource = useRef(false);
-  const [selectionAction, setSelectionAction] = useState<SelectionAction | null>(null);
-  const callbacks = useRef({ onChange, onRun, onFocus, onModeChange, onQuoteSelection });
-  callbacks.current = { onChange, onRun, onFocus, onModeChange, onQuoteSelection };
+  const callbacks = useRef({ onChange, onRun, onFocus, onModeChange, onSelectionActionChange });
+  callbacks.current = { onChange, onRun, onFocus, onModeChange, onSelectionActionChange };
 
   useEffect(() => {
     if (!host.current) return;
@@ -157,21 +152,16 @@ export function CellEditor({
             const selection = update.view.hasFocus
               ? selectionFromSource(update.state.doc.toString(), range.anchor, range.head)
               : null;
-            const shellBounds = shell.current?.getBoundingClientRect();
+            const editorBounds = host.current?.getBoundingClientRect();
             const cursorBounds = selection
-              ? update.view.coordsAtPos(range.head, range.head < range.anchor ? -1 : 1)
+              ? update.view.coordsAtPos(range.to, -1)
               : null;
-            if (!selection || !shellBounds || !cursorBounds) {
-              setSelectionAction(null);
+            if (!selection || !editorBounds || !cursorBounds) {
+              callbacks.current.onSelectionActionChange(null);
             } else {
-              const buttonWidth = selection.tooLarge ? 132 : 96;
-              setSelectionAction({
+              callbacks.current.onSelectionActionChange({
                 selection,
-                left: Math.max(
-                  7,
-                  Math.min(shellBounds.width - buttonWidth - 7, cursorBounds.left - shellBounds.left),
-                ),
-                top: Math.max(5, cursorBounds.top - shellBounds.top - 27),
+                top: Math.max(35, cursorBounds.bottom - editorBounds.top - 9),
               });
             }
           }
@@ -184,6 +174,7 @@ export function CellEditor({
     const handleVimModeChange = () => callbacks.current.onModeChange(currentVimMode(editor));
     cm?.on("vim-mode-change", handleVimModeChange);
     return () => {
+      callbacks.current.onSelectionActionChange(null);
       cm?.off("vim-mode-change", handleVimModeChange);
       view.current?.destroy();
       view.current = null;
@@ -215,37 +206,5 @@ export function CellEditor({
     }
   }, [source]);
 
-  return (
-    <div className="cell-editor-shell" ref={shell}>
-      <div className="cell-editor" ref={host} />
-      {selectionAction && (
-        <button
-          type="button"
-          className="cell-selection-action"
-          style={{ left: selectionAction.left, top: selectionAction.top }}
-          disabled={selectionAction.selection.tooLarge}
-          title={selectionAction.selection.tooLarge
-            ? "Select no more than 200 lines or 20,000 characters"
-            : `Quote ${selectionLineLabel(selectionAction.selection)} to Codex`}
-          aria-label={selectionAction.selection.tooLarge
-            ? "Selection is too large to quote to Codex"
-            : `Ask Codex about ${selectionLineLabel(selectionAction.selection).toLowerCase()}`}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!selectionAction.selection.tooLarge) {
-              callbacks.current.onQuoteSelection(selectionAction.selection);
-            }
-          }}
-        >
-          <SparkIcon />
-          {selectionAction.selection.tooLarge ? "Selection too large" : "Ask Codex"}
-        </button>
-      )}
-    </div>
-  );
+  return <div className="cell-editor" ref={host} />;
 }
