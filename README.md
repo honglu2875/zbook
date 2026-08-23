@@ -4,7 +4,11 @@
 [![CI](https://github.com/honglu2875/zbook/actions/workflows/ci.yml/badge.svg)](https://github.com/honglu2875/zbook/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/honglu2875/zbook/blob/main/LICENSE)
 
-Zbook is a fast, keyboard-first notebook for local work. It keeps the useful core of Jupyter—`.ipynb` files, IPython kernels, code and Markdown cells, rich outputs, and a workspace tree—inside a deliberately small interface with first-class `uv` and Codex integration.
+**A small local notebook where Codex works on cells as cells.**
+
+Zbook is a fast, keyboard-first notebook for local work. Its defining feature is native Codex-to-notebook interaction: Codex reads and changes live cells through structured notebook tools instead of shell-editing `.ipynb` JSON and waiting for a Jupyter frontend to reload it. It can lock relevant cells, read compact numbered source, stream reviewable diffs, insert or reorder cells, and leave the final Apply, Apply & Run, or Reject decision with you. This avoids stale refreshes, notebook-JSON churn, and human/agent editing races—the awkward parts of using a filesystem-oriented coding agent through Jupyter or a thin chat plugin.
+
+The rest stays intentionally familiar: ordinary `.ipynb` files, IPython kernels, code and Markdown cells, rich outputs, and a workspace tree inside a deliberately small interface with first-class `uv` integration.
 
 Codex runs through the locally installed Codex CLI. It can use your existing CLI login and subscription; Zbook does not require a separate API key.
 
@@ -12,12 +16,13 @@ Codex runs through the locally installed Codex CLI. It can use your existing CLI
 
 ## What is included
 
+- Native Codex cell tools with focused reads, turn-scoped locks, streamed proposals, structural edits, cell reordering, and capability discovery.
 - A compact React and CodeMirror notebook editor with Python highlighting, Markdown rendering, multiple tabs, cell reordering, collapsible outputs, `#@title` cell headings, and optional Vim bindings.
 - A workspace-scoped file tree with create, rename, upload, delete, refresh, and external-change protection.
 - One IPython kernel per open notebook, launched from a selectable `uv` environment.
 - Live Jupyter widgets, including interactive Matplotlib figures through `ipympl`.
 - Live package installation and removal without coupling the notebook environment to Zbook's own runtime.
-- A persistent Codex panel with model and effort controls, account status, thread history, selected-line context, and direct notebook cell tools.
+- A persistent Codex panel using your own CLI subscription, with model and effort controls, account status, thread history, and selected-line context.
 - Reviewable Codex edits: streamed red/green proposals stay separate from accepted notebook content until you apply, apply and run, or reject them.
 
 Zbook intentionally does not include terminals, debuggers, dashboards, extension marketplaces, multi-user collaboration, or the rest of the JupyterLab surface area. It is a local, AI-guided notebook rather than a general IDE.
@@ -77,6 +82,8 @@ zbook run -- --ZbookApp.venv=/path/to/project/.venv
 ```
 
 The environment control at the bottom of the workspace pane can switch among detected `uv` environments, accept a path, and install or uninstall packages live. Each notebook owns its kernel, so changing tabs does not accidentally reuse another notebook's execution state.
+
+The kernel-state chip at the lower right opens the active notebook's lightweight monitor. It reports state, uptime, process count, current memory and host-normalized CPU use, keeps two 90-second sparklines while open, and provides explicit Interrupt or Restart controls. Sampling stops with the popover and never executes hidden code in the notebook kernel.
 
 Interactive controls use the standard Jupyter widget protocol. Core `ipywidgets` controls work when `ipywidgets` is installed in the selected environment. For a draggable Matplotlib figure or `matplotlib.widgets.Slider`, install `ipympl` in that environment and select the widget backend before creating the figure:
 

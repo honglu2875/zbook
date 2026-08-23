@@ -1,5 +1,6 @@
 import type {
   ExecutionResult,
+  KernelMetrics,
   KernelState,
 } from "./kernel";
 
@@ -12,6 +13,7 @@ export interface ManagedKernel {
   ): Promise<ExecutionResult>;
   renderWidget(modelId: string, element: HTMLElement): Promise<() => void>;
   interrupt(): Promise<void>;
+  metrics(): Promise<KernelMetrics | null>;
   shutdown(): Promise<void>;
 }
 

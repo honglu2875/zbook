@@ -30,6 +30,10 @@ class FakeKernel implements ManagedKernel {
   }
 
   async interrupt(): Promise<void> {}
+
+  async metrics(): Promise<null> {
+    return null;
+  }
 }
 
 function setup() {
