@@ -4,6 +4,8 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.0rc1] - 2026-08-23
+
 ### Added
 
 - Reviewable, persistent Codex source proposals with streamed diffs, turn-scoped cell locks, Apply, Apply & Run, Reject, conflict detection, and review navigation.
@@ -53,6 +55,7 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 - Initial PyPI release with the workspace tree, notebook editor, IPython execution, `uv` environment management, and Codex CLI panel.
 
-[Unreleased]: https://github.com/honglu2875/zbook/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/honglu2875/zbook/compare/v1.0.0rc1...HEAD
+[1.0.0rc1]: https://github.com/honglu2875/zbook/compare/v0.1.1...v1.0.0rc1
 [0.1.1]: https://github.com/honglu2875/zbook/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/honglu2875/zbook/releases/tag/v0.1.0
