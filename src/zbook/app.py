@@ -27,11 +27,13 @@ from .handlers import (
     CanonicalUrlHandler,
     EnvironmentsHandler,
     IndexHandler,
+    KernelMetricsHandler,
     KernelPrepareHandler,
     PackageHandler,
     PackagesHandler,
     StatusHandler,
 )
+from .kernel_metrics import KernelMetricsSampler
 from .kernel_spec import install_runtime_kernel_spec
 from .uv_env import UvEnvironment, UvRunner
 
@@ -64,6 +66,7 @@ class ZbookApp(ExtensionApp):
     temporary_environment_root: Path | None = None
     environment_lock: asyncio.Lock
     codex_lock: asyncio.Lock
+    kernel_metrics: KernelMetricsSampler
 
     @property
     def static_root(self) -> Path:
@@ -93,6 +96,7 @@ class ZbookApp(ExtensionApp):
         self.uv_runner = UvRunner()
         self.environment_lock = asyncio.Lock()
         self.codex_lock = asyncio.Lock()
+        self.kernel_metrics = KernelMetricsSampler()
         root_dir = str(self.app_config.workspace)
 
         # Extension applications load after Jupyter creates these managers, so
@@ -174,6 +178,7 @@ class ZbookApp(ExtensionApp):
                 (r"/zbook/api/packages", PackagesHandler),
                 (r"/zbook/api/packages/([^/]+)", PackageHandler),
                 (r"/zbook/api/kernel/prepare", KernelPrepareHandler),
+                (r"/zbook/api/kernels/([^/]+)/metrics", KernelMetricsHandler),
                 (r"/zbook/api/codex", CodexWebSocketHandler),
                 (
                     r"/zbook/assets/(.*)",
@@ -201,6 +206,8 @@ class ZbookApp(ExtensionApp):
     async def stop_extension(self) -> None:
         if self.codex is not None:
             await self.codex.close()
+        if hasattr(self, "kernel_metrics"):
+            self.kernel_metrics.clear()
         self._cleanup_temporary_environment()
 
     def _cleanup_temporary_environment(self) -> None:

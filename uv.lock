@@ -2070,6 +2070,7 @@ source = { editable = "." }
 dependencies = [
     { name = "jupyter-server" },
     { name = "nbformat" },
+    { name = "psutil" },
     { name = "traitlets" },
 ]
 
@@ -2087,6 +2088,7 @@ dev = [
 requires-dist = [
     { name = "jupyter-server", specifier = ">=2.15,<3" },
     { name = "nbformat", specifier = ">=5.10,<6" },
+    { name = "psutil", specifier = ">=5.9,<8" },
     { name = "traitlets", specifier = ">=5.14,<6" },
 ]
 

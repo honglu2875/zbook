@@ -5,7 +5,7 @@ import {
   type NotebookOutput,
   type RawNotebookOutput,
 } from "../model/notebook";
-import { jupyterUrl, requestJson } from "./http";
+import { appUrl, jupyterUrl, requestJson } from "./http";
 import type { KernelRuntime } from "./widgetRuntime";
 
 export type KernelState = "disconnected" | "starting" | "idle" | "busy" | "dead" | "error";
@@ -29,6 +29,17 @@ interface PendingExecution {
 export interface ExecutionResult {
   outputs: NotebookOutput[];
   executionCount: number | null;
+}
+
+export interface KernelMetrics {
+  ok: boolean;
+  available: boolean;
+  reason: string | null;
+  pid: number | null;
+  rssBytes: number | null;
+  cpuPercent: number | null;
+  uptimeSeconds: number | null;
+  processes: number | null;
 }
 
 export class KernelClient {
@@ -143,6 +154,13 @@ export class KernelClient {
       method: "POST",
       body: JSON.stringify({}),
     });
+  }
+
+  async metrics(): Promise<KernelMetrics | null> {
+    if (!this.kernelId) return null;
+    return requestJson<KernelMetrics>(
+      appUrl(`api/kernels/${encodeURIComponent(this.kernelId)}/metrics`),
+    );
   }
 
   async shutdown(): Promise<void> {

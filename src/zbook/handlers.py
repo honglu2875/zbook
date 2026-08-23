@@ -117,6 +117,30 @@ class StatusHandler(APIHandler):
         self.finish(json.dumps(payload))
 
 
+class KernelMetricsHandler(APIHandler):
+    """Sample the active local kernel without executing notebook code."""
+
+    @web.authenticated
+    async def get(self, kernel_id: str) -> None:
+        app = _app(self)
+        try:
+            kernel = self.kernel_manager.get_kernel(kernel_id)
+        except KeyError:
+            app.kernel_metrics.forget(kernel_id)
+            _finish_json(self, {"ok": False, "message": "Kernel not found"}, 404)
+            return
+
+        provisioner = getattr(kernel, "provisioner", None)
+        pid = getattr(provisioner, "pid", None)
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            metrics = app.kernel_metrics.unavailable(
+                "Resource sampling is unavailable for this kernel provisioner."
+            )
+        else:
+            metrics = await asyncio.to_thread(app.kernel_metrics.sample, kernel_id, pid)
+        _finish_json(self, {"ok": True, **metrics})
+
+
 class PackagesHandler(APIHandler):
     """Inspect and mutate the configured environment while the server stays running."""
 

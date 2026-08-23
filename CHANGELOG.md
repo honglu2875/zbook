@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- A compact active-kernel monitor with on-demand CPU and memory history, uptime, process statistics, and explicit interrupt or restart controls.
+- README positioning centered on native, structured Codex interaction with live notebook cells.
+
 ## [1.0.0rc1] - 2026-08-23
 
 ### Added

@@ -11,6 +11,7 @@ import { CodexPanel } from "./components/CodexPanel";
 import { CommandPalette, type PaletteCommand, type PaletteFile } from "./components/CommandPalette";
 import { EnvironmentPanel } from "./components/EnvironmentPanel";
 import { FileTree } from "./components/FileTree";
+import { KernelMonitor } from "./components/KernelMonitor";
 import {
   BranchIcon,
   CloseIcon,
@@ -382,6 +383,7 @@ export default function App() {
   const [renamingTabPath, setRenamingTabPath] = useState<string | null>(null);
   const [renamingTabName, setRenamingTabName] = useState("");
   const [environmentOpen, setEnvironmentOpen] = useState(false);
+  const [kernelMonitorOpen, setKernelMonitorOpen] = useState(false);
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [directories, setDirectories] = useState<Record<string, ContentEntry[]>>({});
   const [treeDirectory, setTreeDirectory] = useState("");
@@ -419,6 +421,7 @@ export default function App() {
   const cellStructureHistories = useRef(new Map<string, CellStructureHistory>());
   const pendingCellDeleteRef = useRef<PendingCellDelete | null>(null);
   const vimKeymapRef = useRef<HTMLDivElement | null>(null);
+  const kernelMonitorRef = useRef<HTMLDivElement | null>(null);
   const restoredWorkspace = useRef<string | null>(null);
   const workspaceNavigationVersion = useRef(0);
   const paneInteractionVersion = useRef(0);
@@ -441,6 +444,10 @@ export default function App() {
     const path = documentRef.current.notebookPath;
     if (!path) return Promise.reject(new Error("No notebook is open for this widget."));
     return kernelPool.client(path).renderWidget(modelId, element);
+  }, [kernelPool]);
+  const sampleActiveKernel = useCallback(() => {
+    const path = documentRef.current.notebookPath;
+    return path ? kernelPool.client(path).metrics() : Promise.resolve(null);
   }, [kernelPool]);
 
   useEffect(() => {
@@ -539,12 +546,16 @@ export default function App() {
   }, [userPreferencesReady, vimEnabled]);
 
   useEffect(() => {
-    if (!vimKeymapOpen) return;
+    if (!vimKeymapOpen && !kernelMonitorOpen) return;
     function closeOnOutsidePointer(event: PointerEvent) {
       if (!vimKeymapRef.current?.contains(event.target as Node)) setVimKeymapOpen(false);
+      if (!kernelMonitorRef.current?.contains(event.target as Node)) setKernelMonitorOpen(false);
     }
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setVimKeymapOpen(false);
+      if (event.key === "Escape") {
+        setVimKeymapOpen(false);
+        setKernelMonitorOpen(false);
+      }
     }
     document.addEventListener("pointerdown", closeOnOutsidePointer);
     window.addEventListener("keydown", closeOnEscape);
@@ -552,7 +563,9 @@ export default function App() {
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [vimKeymapOpen]);
+  }, [kernelMonitorOpen, vimKeymapOpen]);
+
+  useEffect(() => setKernelMonitorOpen(false), [notebookPath]);
 
   useEffect(() => () => {
     void kernelPool.shutdownAll();
@@ -3202,18 +3215,35 @@ export default function App() {
           )}
         </div>
         <div className="status-spacer" />
-        <span>{status?.config.environment_mode === "project" ? "uv project" : "uv environment"}</span>
-        <span>{environmentName}</span>
-        <button
-          type="button"
-          className="kernel-status"
-          disabled={!notebookPath || !status?.kernel.ready || notebookToolLocked || codexTurnActive || kernelState === "busy" || kernelState === "starting"}
-          onClick={() => void restartKernel()}
-          title={kernelState === "disconnected" || kernelState === "dead" || kernelState === "error"
-            ? "Start the kernel isolated to this notebook"
-            : "Restart the kernel isolated to this notebook"}
-        >kernel: {kernelState}</button>
-        <span>{notebookPath ?? "No notebook"}</span>
+        <span className="status-environment-kind">{status?.config.environment_mode === "project" ? "uv project" : "uv environment"}</span>
+        <span className="status-environment-name">{environmentName}</span>
+        <div className="kernel-status-control" ref={kernelMonitorRef}>
+          <button
+            type="button"
+            className={`kernel-status is-${kernelState} ${kernelMonitorOpen ? "is-open" : ""}`}
+            disabled={!notebookPath || !status?.kernel.ready}
+            aria-expanded={kernelMonitorOpen}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setVimKeymapOpen(false);
+              setKernelMonitorOpen((value) => !value);
+            }}
+            title="Open active kernel status and controls"
+          ><i aria-hidden="true" />kernel: {kernelState}</button>
+          {kernelMonitorOpen && notebookPath && status?.kernel.ready && (
+            <KernelMonitor
+              state={kernelState}
+              notebookName={basename(notebookPath)}
+              environmentName={status.config.venv}
+              restartDisabled={notebookToolLocked || codexTurnActive || busy}
+              onSample={sampleActiveKernel}
+              onInterrupt={interruptKernel}
+              onRestart={restartKernel}
+              onClose={() => setKernelMonitorOpen(false)}
+            />
+          )}
+        </div>
+        <span className="status-notebook-path">{notebookPath ?? "No notebook"}</span>
       </footer>
       {busy && <div className="busy-indicator" role="status" aria-live="polite"><i />Working…</div>}
       {notice && <button className="notice" role="status" aria-live="polite" onClick={() => setNotice(null)}>{notice}</button>}

@@ -30,6 +30,42 @@ test("opens, edits, executes, saves, and reloads a real notebook", async ({ page
   await expect(page.locator(".notebook-cell").first().locator(".cell-output")).toContainText("42");
 });
 
+test("monitors and restarts the active notebook kernel", async ({ page }) => {
+  await openNotebook(page, "core.ipynb");
+  const first = page.locator(".notebook-cell").first();
+  await first.getByRole("button", { name: "Run cell" }).click();
+
+  const status = page.getByRole("button", { name: /kernel: idle/i });
+  await expect(status).toBeVisible();
+  await status.click();
+
+  const monitor = page.getByRole("dialog", { name: "Active kernel monitor" });
+  await expect(monitor).toBeVisible();
+  await expect(monitor).toContainText("core.ipynb");
+  const monitorBounds = await monitor.boundingBox();
+  expect(monitorBounds).not.toBeNull();
+  expect(monitorBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(monitorBounds!.x + monitorBounds!.width).toBeLessThanOrEqual(1_441);
+  await expect(monitor.locator(".kernel-monitor-metrics section").first().locator("strong"))
+    .toHaveText(/\d+ (MB|GB)/);
+  await expect(monitor.locator(".kernel-monitor-metrics section").nth(1).locator("strong"))
+    .toHaveText(/\d+\.\d%/, { timeout: 6_000 });
+  await expect(monitor.locator(".kernel-monitor-facts")).toContainText(/PID \d+/);
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await monitor.getByRole("button", { name: "Restart" }).click();
+  await expect(page.locator(".notice")).toContainText("Restarted the kernel for core.ipynb");
+  await expect(page.getByRole("button", { name: /kernel: idle/i })).toBeVisible();
+
+  await page.setViewportSize({ width: 360, height: 760 });
+  const narrowBounds = await monitor.boundingBox();
+  expect(narrowBounds).not.toBeNull();
+  expect(narrowBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(narrowBounds!.x + narrowBounds!.width).toBeLessThanOrEqual(361);
+  await page.keyboard.press("Escape");
+  await expect(monitor).toHaveCount(0);
+});
+
 test("keeps multiple tabs, renames a tab, and closes it", async ({ page }) => {
   await openNotebook(page, "core.ipynb");
   await page.getByRole("button", { name: "second.ipynb", exact: true }).click();
