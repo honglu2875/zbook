@@ -2,7 +2,7 @@
 
 Zbook is a tiny personal project to create a different jupyter notebook frontend. In this AI age it is hard not to have a plugin on the side of your notebook to assist those boilerplate code.
 
-![demo](assets/demo.gif)
+[demo.webm](https://github.com/user-attachments/assets/97e3538c-51c9-48e7-a42a-bf471219a79e)
 
 It still uses a Jupyter Server backend, but the whole point of this project is a custom and minimal React frontend that embeds AI into our notebook workflow and a uv-based environment management. 
 
