@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import shutil
+import struct
 import tempfile
+import zlib
 from pathlib import Path
 
 from zbook.cli import main
@@ -33,7 +36,34 @@ def notebook(*cells: tuple[str, str, str]) -> dict[str, object]:
     }
 
 
+def solid_png(width: int, height: int) -> str:
+    """Return a small encoded file with deliberately wide natural dimensions."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)
+
+    scanline = b"\0" + (b"\xd1\xa6\x5e" * width)
+    payload = b"".join(scanline for _ in range(height))
+    png = b"\x89PNG\r\n\x1a\n"
+    png += chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(payload, level=9))
+    png += chunk(b"IEND", b"")
+    return base64.b64encode(png).decode("ascii")
+
+
 def seed_workspace(workspace: Path) -> None:
+    image_output = notebook(("image-cell", "code", "# A stored wide image output"))
+    image_cell = image_output["cells"][0]
+    image_cell["execution_count"] = 1
+    image_cell["outputs"] = [{
+        "output_type": "display_data",
+        "data": {
+            "image/png": solid_png(1_200, 900),
+            "text/plain": "<wide test image>",
+        },
+        "metadata": {},
+    }]
     fixtures = {
         "core.ipynb": notebook(
             ("core-first", "code", "value = 6 * 7\nvalue"),
@@ -45,6 +75,7 @@ def seed_workspace(workspace: Path) -> None:
             ("markdown-second", "code", "print('next cell')"),
         ),
         "conflict.ipynb": notebook(("conflict-cell", "code", "original_value = 1")),
+        "image.ipynb": image_output,
     }
     for name, content in fixtures.items():
         (workspace / name).write_text(json.dumps(content), encoding="utf-8")

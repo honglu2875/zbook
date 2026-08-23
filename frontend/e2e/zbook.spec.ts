@@ -63,10 +63,18 @@ test("Shift+Enter renders markdown and advances to the next cell", async ({ page
   const editor = first.locator(".cm-content");
   await editor.click();
   await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.insertText("## Updated heading");
+  await page.keyboard.insertText("## Updated `heading`");
   await page.keyboard.press("Shift+Enter");
 
   await expect(first.locator(".markdown-rendered")).toContainText("Updated heading");
+  const heading = first.locator(".markdown-rendered h2");
+  const inlineCode = heading.locator("code");
+  await expect(inlineCode).toHaveText("heading");
+  const fontSizes = await heading.evaluate((element) => ({
+    heading: Number.parseFloat(getComputedStyle(element).fontSize),
+    code: Number.parseFloat(getComputedStyle(element.querySelector("code")!).fontSize),
+  }));
+  expect(fontSizes.code / fontSizes.heading).toBeGreaterThanOrEqual(.84);
   await expect(second).toHaveClass(/is-selected/);
 });
 
@@ -144,4 +152,65 @@ test("keeps both side panels usable as narrow-screen drawers", async ({ page }) 
   await page.getByRole("button", { name: "Toggle Codex" }).click();
   await expect(page.locator(".file-panel")).toHaveCount(0);
   await expect(codexPanel).toBeVisible();
+});
+
+test("keeps notebook chrome clear at very narrow widths", async ({ page }) => {
+  await openNotebook(page, "core.ipynb");
+  for (const label of ["Toggle files", "Toggle Codex"]) {
+    const toggle = page.getByRole("button", { name: label });
+    if (await toggle.getAttribute("aria-pressed") === "true") await toggle.click();
+  }
+
+  const firstCell = page.locator(".notebook-cell").first();
+  await firstCell.getByRole("button", { name: "Run cell" }).click();
+  await expect(firstCell.locator(".execution-count")).toHaveText("[1]");
+  await page.setViewportSize({ width: 320, height: 760 });
+
+  const geometry = await page.evaluate(() => {
+    const bounds = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`Missing responsive-test element: ${selector}`);
+      const box = element.getBoundingClientRect();
+      return { top: box.top, right: box.right, bottom: box.bottom, left: box.left };
+    };
+    const scroll = document.querySelector(".notebook-scroll");
+    if (!scroll) throw new Error("Missing notebook scroll container");
+    return {
+      title: bounds(".notebook-title"),
+      actions: bounds(".notebook-document-actions"),
+      count: bounds(".execution-count"),
+      cellBody: bounds(".cell-body"),
+      scrollWidth: scroll.scrollWidth,
+      clientWidth: scroll.clientWidth,
+    };
+  });
+
+  expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.actions.top);
+  expect(geometry.count.right).toBeLessThanOrEqual(geometry.cellBody.left);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+});
+
+test("toggles a scaled image at native size with a single click", async ({ page }) => {
+  await openNotebook(page, "image.ipynb");
+
+  const imageFrame = page.locator(".output-image-frame");
+  await expect(imageFrame).toBeVisible();
+  await expect(imageFrame).toHaveAttribute("aria-label", /Click to view the image at 1200 × 900/);
+  await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
+
+  await imageFrame.click();
+  await expect(imageFrame).toHaveAttribute("aria-pressed", "true");
+  await expect(imageFrame).toHaveAttribute("aria-label", "Click to fit the image to the output");
+  expect(await imageFrame.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await imageFrame.evaluate((element) => element.scrollHeight === element.clientHeight)).toBe(true);
+
+  const notebookScroll = page.locator(".notebook-scroll");
+  const scrollBeforeWheel = await notebookScroll.evaluate((element) => element.scrollTop);
+  await imageFrame.hover({ position: { x: 20, y: 100 } });
+  await page.mouse.wheel(0, 300);
+  await expect.poll(() => notebookScroll.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(scrollBeforeWheel);
+
+  await imageFrame.click({ position: { x: 10, y: 10 } });
+  await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
 });

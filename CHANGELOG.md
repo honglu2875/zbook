@@ -18,12 +18,19 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 ### Changed
 
 - Notebook tool reads are source-light and return requested source as a single compact, line-numbered representation.
+- The Codex panel shows a persistent working-stage indicator, and scaled images toggle between fitted and native resolution with one click.
+- Codex uses a neutral CLI prompt mark instead of an ambiguous sparkle.
 - Codex protocol reading accepts large JSONL frames without asyncio's line-length failure mode.
 - Notebook tabs now own their execution state instead of sharing one kernel across documents.
 - CI uses one bounded verification job with Python, frontend, bundled-asset, and real-browser coverage.
 
 ### Fixed
 
+- Codex send and stop controls are optically centered, typographic chrome symbols use a consistent SVG grid, and the browser tab and title bar share one pixel-centered Zbook mark.
+- The new-notebook tab control is borderless at rest and shares the tab-close hover treatment.
+- Narrow notebook layouts keep document status controls separate from the title and preserve the full execution-count gutter.
+- Inline code in rendered Markdown headings scales with its surrounding heading instead of retaining body-code size.
+- Native-size images retain horizontal overflow while vertical wheel input scrolls the notebook document.
 - Invalid `execution_count` properties are removed from `display_data` outputs before saving.
 - Immediate workspace navigation and pane toggles are no longer overwritten by delayed session restoration.
 - Unsaved edits are not silently written over a notebook that changed on disk.

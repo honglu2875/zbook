@@ -13,9 +13,10 @@ import {
   HeightIcon,
   LockIcon,
   PlayIcon,
+  PlusIcon,
+  PromptIcon,
   RefreshIcon,
   SaveIcon,
-  SparkIcon,
   TrashIcon,
 } from "./icons";
 
@@ -98,8 +99,8 @@ function ImageOutput({ text, data }: { text: string; data: string }) {
     if (canToggle) setNativeSize((value) => !value);
   };
   const sizeAction = nativeSize
-    ? "Double-click to fit the image to the output"
-    : `Double-click to view the image at ${dimensions || "its original resolution"}`;
+    ? "Click to fit the image to the output"
+    : `Click to view the image at ${dimensions || "its original resolution"}`;
 
   return (
     <div
@@ -109,7 +110,8 @@ function ImageOutput({ text, data }: { text: string; data: string }) {
       aria-label={canToggle ? sizeAction : undefined}
       aria-pressed={canToggle ? nativeSize : undefined}
       title={canToggle ? sizeAction : undefined}
-      onDoubleClick={(event) => {
+      onClick={(event) => {
+        if (!canToggle) return;
         event.preventDefault();
         event.stopPropagation();
         toggleSize();
@@ -400,7 +402,7 @@ export function Notebook({
                         }
                       }}
                     >
-                      <SparkIcon />
+                      <PromptIcon />
                       {activeSelection.selection.tooLarge ? "Limit" : "Ask"}
                     </button>
                   )}
@@ -506,8 +508,8 @@ export function Notebook({
                 </div>
               </article>
               <div className="cell-insert-controls" role="group" aria-label={`Insert a cell after this ${cell.kind} cell`}>
-                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "code")}><span>+</span> Code</button>
-                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "markdown")}><span>+</span> Markdown</button>
+                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "code")}><PlusIcon />Code</button>
+                <button disabled={cellLocked} onClick={() => onAddAfter(cell.id, "markdown")}><PlusIcon />Markdown</button>
               </div>
             </div>
           );

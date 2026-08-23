@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SearchIcon } from "./icons";
+import { ChevronIcon, FileIcon, NotebookIcon, SearchIcon } from "./icons";
 
 export interface PaletteFile {
   path: string;
@@ -150,7 +150,11 @@ export function CommandPalette({
               onMouseEnter={() => setSelected(index)}
               onClick={() => activate(index)}
             >
-              <i>{item.kind === "notebook" ? "▦" : item.kind === "file" ? "·" : "›"}</i>
+              <i>{item.kind === "notebook"
+                ? <NotebookIcon />
+                : item.kind === "file"
+                  ? <FileIcon />
+                  : <ChevronIcon />}</i>
               <span><strong>{item.label}</strong>{item.detail && <em>{item.detail}</em>}</span>
               {item.shortcut && <kbd>{item.shortcut}</kbd>}
             </button>
