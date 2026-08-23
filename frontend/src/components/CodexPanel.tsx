@@ -95,6 +95,7 @@ interface CodexPanelProps {
   onWorkspaceChanged: () => void;
   onTurnFinished: () => void;
   onNotebookToolCall: (tool: string, argumentsValue: unknown) => Promise<NotebookToolResponse>;
+  onReturnToNotebook: () => void;
 }
 
 interface QuotaView {
@@ -275,6 +276,7 @@ export function CodexPanel({
   onWorkspaceChanged,
   onTurnFinished,
   onNotebookToolCall,
+  onReturnToNotebook,
 }: CodexPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -1236,6 +1238,12 @@ export function CodexPanel({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              if (accountOpen || threadOpen) return;
+              event.preventDefault();
+              onReturnToNotebook();
+              return;
+            }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();

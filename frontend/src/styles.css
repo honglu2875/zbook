@@ -739,6 +739,52 @@ body.is-resizing-pane .app-shell { transition: none; }
 .statusbar button { height: 17px; padding: 0 6px; border: 0; border-radius: 2px; background: transparent; color: #6d7379; font: 9px var(--font-mono); cursor: pointer; }
 .statusbar button:hover { background: #292c2f; color: #b8bdc1; }
 .statusbar button.status-enabled { background: #4b4438; color: #d5b576; }
+.status-vim-controls { position: relative; gap: 4px !important; }
+.statusbar .vim-keymap-chip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 17px;
+  padding: 0 5px;
+  border: 1px solid #34383c;
+  border-radius: 4px;
+  background: #202326;
+  color: #686f75;
+  font-size: 8px;
+  letter-spacing: .015em;
+}
+.statusbar .vim-keymap-chip:hover, .statusbar .vim-keymap-chip.is-open { border-color: #514a3e; background: #282722; color: #a9a397; }
+.vim-keymap-chip span { padding: 1px 2px; border-radius: 2px; }
+.vim-keymap-chip span.is-current { background: #4b4438; color: #e0bd7b; }
+.vim-keymap-chip i { color: #4f555a; font-style: normal; }
+.vim-keymap-popover {
+  position: absolute;
+  z-index: 45;
+  bottom: 22px;
+  left: 0;
+  width: 384px;
+  padding: 7px;
+  border: 1px solid #3a3e42;
+  border-radius: 7px;
+  background: #222528;
+  color: #aeb3b7;
+  box-shadow: 0 12px 34px #0008;
+  font-family: var(--font-ui);
+  user-select: none;
+}
+.vim-keymap-popover > header { display: flex; align-items: center; justify-content: space-between; min-height: 26px; padding: 0 6px 5px; }
+.vim-keymap-popover > header strong { color: #d1d4d6; font-size: 10.5px; font-weight: 600; }
+.vim-keymap-popover > header span { color: #747b81; font-size: 8.5px; }
+.vim-keymap-popover kbd { display: inline-grid; min-width: 17px; height: 16px; place-items: center; padding: 0 4px; border: 1px solid #41464b; border-radius: 3px; background: #292c2f; color: #b3b8bc; font: 8px var(--font-mono); box-shadow: 0 1px 0 #111416; }
+.vim-keymap-row { margin-top: 3px; padding: 7px 8px 6px; border: 1px solid transparent; border-radius: 5px; background: #1e2123; }
+.vim-keymap-row.is-current { border-color: #5b4f3b; background: #292722; box-shadow: inset 2px 0 #c39956; }
+.vim-keymap-row > div { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.vim-keymap-row b { color: #c9cccf; font-size: 9.5px; font-weight: 600; }
+.vim-keymap-row em { color: #626970; font-size: 8px; font-style: normal; text-transform: uppercase; letter-spacing: .07em; }
+.vim-keymap-row p { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin: 0; color: #7f868c; font-size: 8.5px; }
+.vim-keymap-row p + p { margin-top: 5px; }
+.vim-keymap-row p span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.vim-keymap-footer { display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 7px 5px 1px; color: #686f75; font-size: 8px; }
 .status-spacer { flex: 1; }
 
 .busy-indicator { position: fixed; z-index: 20; top: 48px; left: 50%; display: flex; align-items: center; gap: 7px; transform: translateX(-50%); padding: 6px 10px; border: 1px solid #3a3e41; background: #222528; color: #9ba0a5; font-size: 10px; box-shadow: 0 5px 18px #0004; }
@@ -779,4 +825,8 @@ body.is-resizing-pane .app-shell { transition: none; }
   .codex-panel { display: none; }
   .pane-resizer-right { display: none; }
   .title-actions .run-all { display: none; }
+}
+
+@media (max-width: 520px) {
+  .vim-keymap-popover { position: fixed; right: 9px; bottom: 27px; left: 9px; width: auto; }
 }

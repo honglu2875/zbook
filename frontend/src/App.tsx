@@ -92,6 +92,24 @@ interface CodexEditReview {
   afterRevision: number;
 }
 
+interface CellStructureSnapshot {
+  cells: NotebookCell[];
+  selectedId: string;
+  cellViews: Record<string, CellViewState>;
+  label: string;
+}
+
+interface CellStructureHistory {
+  undo: CellStructureSnapshot[];
+  redo: CellStructureSnapshot[];
+  expectedCellIds: string[];
+}
+
+interface PendingCellDelete {
+  cellId: string;
+  timer: number;
+}
+
 type PaneSide = "left" | "right";
 
 const LEFT_PANE_DEFAULT = 226;
@@ -105,6 +123,8 @@ const LEFT_PANE_STORAGE = "zbook.layout.leftWidth";
 const RIGHT_PANE_STORAGE = "zbook.layout.rightWidth";
 const USER_PREFERENCES_STORAGE = "zbook.preferences.v1";
 const WORKSPACE_SESSION_VERSION = 1;
+const CELL_STRUCTURE_HISTORY_LIMIT = 100;
+const VIM_KEY_SEQUENCE_TIMEOUT_MS = 500;
 const NOTEBOOK_AVAILABLE_ACTIONS = [
   { action: "read_cells", tool: NOTEBOOK_READ_TOOL },
   {
@@ -118,6 +138,14 @@ const NOTEBOOK_AVAILABLE_ACTIONS = [
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+function cellIds(cells: NotebookCell[]): string[] {
+  return cells.map((cell) => cell.id);
+}
+
+function sameCellIds(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
 function storedPaneWidth(key: string, fallback: number, minimum: number, maximum: number): number {
@@ -254,6 +282,8 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mode, setMode] = useState("NAV");
   const [vimEnabled, setVimEnabled] = useState(() => storedVimPreference() ?? false);
+  const [vimKeymapOpen, setVimKeymapOpen] = useState(false);
+  const [pendingCellDeleteId, setPendingCellDeleteId] = useState<string | null>(null);
   const [userPreferencesReady, setUserPreferencesReady] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -299,6 +329,10 @@ export default function App() {
   const directoryRequestVersions = useRef<Record<string, number>>({});
   const selectedByNotebook = useRef<Record<string, string>>({});
   const selectedIdRef = useRef(selectedId);
+  const cellViewsByNotebookRef = useRef(cellViewsByNotebook);
+  const cellStructureHistories = useRef(new Map<string, CellStructureHistory>());
+  const pendingCellDeleteRef = useRef<PendingCellDelete | null>(null);
+  const vimKeymapRef = useRef<HTMLDivElement | null>(null);
   const restoredWorkspace = useRef<string | null>(null);
   const kernelClient = useRef<KernelClient | null>(null);
   if (kernelClient.current === null) kernelClient.current = new KernelClient(setKernelState);
@@ -307,6 +341,7 @@ export default function App() {
   directoriesRef.current = directories;
   openTabsRef.current = openTabs;
   selectedIdRef.current = selectedId;
+  cellViewsByNotebookRef.current = cellViewsByNotebook;
 
   useEffect(() => {
     void refreshStatus();
@@ -379,8 +414,25 @@ export default function App() {
     if (userPreferencesReady) storeVimPreference(vimEnabled);
   }, [userPreferencesReady, vimEnabled]);
 
+  useEffect(() => {
+    if (!vimKeymapOpen) return;
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (!vimKeymapRef.current?.contains(event.target as Node)) setVimKeymapOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setVimKeymapOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [vimKeymapOpen]);
+
   useEffect(() => () => {
     void kernelClient.current?.shutdown();
+    if (pendingCellDeleteRef.current) window.clearTimeout(pendingCellDeleteRef.current.timer);
     document.body.classList.remove("is-resizing-pane");
   }, []);
 
@@ -407,24 +459,72 @@ export default function App() {
       if (target.closest("textarea, input, select, .cm-editor")) return;
       const currentId = selectedIdRef.current;
       const index = Math.max(0, cells.findIndex((cell) => cell.id === currentId));
-      if (event.key === "j" || event.key === "ArrowDown") {
+      const plainDeleteKey = !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+        && !event.shiftKey
+        && event.key === "d";
+      if (!plainDeleteKey) clearPendingCellDelete();
+      if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        applyCellStructureHistory("redo");
+      } else if (
+        !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+        && !event.shiftKey
+        && event.key === "u"
+      ) {
+        event.preventDefault();
+        applyCellStructureHistory("undo");
+      } else if (plainDeleteKey) {
+        event.preventDefault();
+        if (!event.repeat) handleCellDeleteKey(currentId);
+      } else if (event.key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
         enterCellNavigation(cells[Math.min(index + 1, cells.length - 1)].id);
       } else if (event.key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
         enterCellNavigation(cells[Math.max(index - 1, 0)].id);
-      } else if (event.shiftKey && event.key === "Enter") {
+      } else if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key === "Enter") {
+        event.preventDefault();
+        void runCell(currentId, false, false);
+      } else if (event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && event.key === "Enter") {
         event.preventDefault();
         void runCell(currentId, true, false);
-      } else if (event.key === "Enter" || event.key === "i") {
+      } else if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === "Enter") {
+        event.preventDefault();
+        void runCell(currentId, true, true);
+      } else if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === "Enter" || event.key === "i")) {
         event.preventDefault();
         beginCellEditing(currentId);
-      } else if (event.key.toLowerCase() === "o" || event.key.toLowerCase() === "b") {
+      } else if (
+        !event.shiftKey
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+        && event.key === "c"
+      ) {
         event.preventDefault();
-        insertAfter(currentId, "code");
-      } else if (event.key.toLowerCase() === "a") {
+        focusCodexPrompt();
+      } else if (
+        event.shiftKey
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+        && event.key.toLowerCase() === "o"
+      ) {
         event.preventDefault();
         insertBefore(currentId, "code");
+      } else if (
+        !event.shiftKey
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+        && (event.key === "o" || event.key === "a")
+      ) {
+        event.preventDefault();
+        insertAfter(currentId, "code");
       }
     }
     window.addEventListener("keydown", handleGlobalKeys);
@@ -566,6 +666,145 @@ export default function App() {
     if (notebookToolLockedRef.current) return;
     markDirty();
     setCells(updater);
+  }
+
+  function clearPendingCellDelete() {
+    const pending = pendingCellDeleteRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    pendingCellDeleteRef.current = null;
+    setPendingCellDeleteId(null);
+  }
+
+  function handleCellDeleteKey(id: string) {
+    const pending = pendingCellDeleteRef.current;
+    if (pending?.cellId === id) {
+      clearPendingCellDelete();
+      deleteCell(id);
+      return;
+    }
+    clearPendingCellDelete();
+    const timer = window.setTimeout(() => {
+      if (pendingCellDeleteRef.current?.timer !== timer) return;
+      pendingCellDeleteRef.current = null;
+      setPendingCellDeleteId(null);
+    }, VIM_KEY_SEQUENCE_TIMEOUT_MS);
+    pendingCellDeleteRef.current = { cellId: id, timer };
+    setPendingCellDeleteId(id);
+  }
+
+  function freshCellStructureHistory(expectedCellIds: string[]): CellStructureHistory {
+    return { undo: [], redo: [], expectedCellIds };
+  }
+
+  function cellStructureHistoryFor(path: string, currentCells: NotebookCell[]): CellStructureHistory {
+    const currentIds = cellIds(currentCells);
+    let history = cellStructureHistories.current.get(path);
+    if (!history || !sameCellIds(history.expectedCellIds, currentIds)) {
+      history = freshCellStructureHistory(currentIds);
+      cellStructureHistories.current.set(path, history);
+    }
+    return history;
+  }
+
+  function cellStructureSnapshot(path: string, cellsValue: NotebookCell[], label: string): CellStructureSnapshot {
+    return {
+      cells: [...cellsValue],
+      selectedId: selectedIdRef.current,
+      cellViews: { ...(cellViewsByNotebookRef.current[path] ?? {}) },
+      label,
+    };
+  }
+
+  function commitCellStructureChange(
+    nextCells: NotebookCell[],
+    nextSelectedId: string,
+    label: string,
+    editSelected: boolean,
+  ) {
+    const current = documentRef.current;
+    const path = current.notebookPath;
+    if (!path) return;
+    const history = cellStructureHistoryFor(path, current.cells);
+    history.undo.push(cellStructureSnapshot(path, current.cells, label));
+    if (history.undo.length > CELL_STRUCTURE_HISTORY_LIMIT) history.undo.shift();
+    history.redo = [];
+    history.expectedCellIds = cellIds(nextCells);
+
+    markDirty();
+    documentRef.current = { ...current, cells: nextCells, saveState: "dirty" };
+    setCells(nextCells);
+    selectCell(nextSelectedId);
+    setEditingId(editSelected ? nextSelectedId : null);
+    setMode(editSelected ? (vimEnabled ? "NORMAL" : "INSERT") : "NAV");
+    if (!editSelected) focusNavigationCell(nextSelectedId);
+  }
+
+  function restoreCellStructureViews(
+    path: string,
+    currentCells: NotebookCell[],
+    nextCells: NotebookCell[],
+    snapshot: CellStructureSnapshot,
+  ) {
+    const currentIds = new Set(cellIds(currentCells));
+    const nextIds = new Set(cellIds(nextCells));
+    const notebookViews = { ...(cellViewsByNotebookRef.current[path] ?? {}) };
+    for (const id of currentIds) {
+      if (!nextIds.has(id)) delete notebookViews[id];
+    }
+    for (const id of nextIds) {
+      if (currentIds.has(id)) continue;
+      const restoredView = snapshot.cellViews[id];
+      if (restoredView) notebookViews[id] = { ...restoredView };
+      else delete notebookViews[id];
+    }
+    const allViews = { ...cellViewsByNotebookRef.current };
+    if (Object.keys(notebookViews).length) allViews[path] = notebookViews;
+    else delete allViews[path];
+    cellViewsByNotebookRef.current = allViews;
+    setCellViewsByNotebook(allViews);
+  }
+
+  function applyCellStructureHistory(direction: "undo" | "redo") {
+    const current = documentRef.current;
+    const path = current.notebookPath;
+    if (!path) return;
+    if (notebookToolLockedRef.current || codexLockedCellIds(path).length) {
+      setNotice("Wait for Codex to finish before changing cell structure history.");
+      return;
+    }
+    const history = cellStructureHistories.current.get(path);
+    if (!history || !sameCellIds(history.expectedCellIds, cellIds(current.cells))) {
+      if (history) cellStructureHistories.current.delete(path);
+      setNotice(`No cell structure change to ${direction}.`);
+      return;
+    }
+    const source = direction === "undo" ? history.undo : history.redo;
+    const destination = direction === "undo" ? history.redo : history.undo;
+    const snapshot = source.pop();
+    if (!snapshot) {
+      setNotice(`No cell structure change to ${direction}.`);
+      return;
+    }
+    destination.push(cellStructureSnapshot(path, current.cells, snapshot.label));
+    if (destination.length > CELL_STRUCTURE_HISTORY_LIMIT) destination.shift();
+
+    const currentById = new Map(current.cells.map((cell) => [cell.id, cell]));
+    const nextCells = snapshot.cells.map((cell) => currentById.get(cell.id) ?? cell);
+    history.expectedCellIds = cellIds(nextCells);
+    restoreCellStructureViews(path, current.cells, nextCells, snapshot);
+    markDirty();
+    documentRef.current = { ...current, cells: nextCells, saveState: "dirty" };
+    setCells(nextCells);
+    const nextSelectedId = nextCells.some((cell) => cell.id === snapshot.selectedId)
+      ? snapshot.selectedId
+      : nextCells[0].id;
+    selectCell(nextSelectedId);
+    setEditingId(null);
+    setMode("NAV");
+    setCodexEditReview(null);
+    focusNavigationCell(nextSelectedId);
+    setNotice(`${direction === "undo" ? "Undid" : "Redid"} ${snapshot.label}.`);
   }
 
   function replaceCodexCellLocks(next: Record<string, string[]>) {
@@ -1275,6 +1514,15 @@ export default function App() {
     setMode(vimEnabled ? "NORMAL" : "INSERT");
   }
 
+  function focusCodexPrompt() {
+    setRightOpen(true);
+    window.requestAnimationFrame(() => {
+      const prompt = document.querySelector<HTMLTextAreaElement>(".prompt-box textarea:not(:disabled)");
+      if (prompt) prompt.focus();
+      else setNotice("Codex is not ready yet");
+    });
+  }
+
   function toggleCellView(id: string, option: CellViewOption) {
     if (!notebookPath) return;
     const path = notebookPath;
@@ -1311,52 +1559,42 @@ export default function App() {
 
   function deleteCell(id: string) {
     if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
-    const remaining = cells.filter((cell) => cell.id !== id);
-    const replacement = remaining.length ? null : newCell("code");
-    updateCells((current) => {
-      const next = current.filter((cell) => cell.id !== id);
-      return next.length ? next : [replacement!];
-    });
-    setSelectedId(remaining[0]?.id ?? replacement!.id);
-    setEditingId(null);
-    setMode("NAV");
-    if (notebookPath) {
-      const path = notebookPath;
-      setCellViewsByNotebook((current) => {
-        const notebookViews = { ...(current[path] ?? {}) };
-        delete notebookViews[id];
-        const next = { ...current };
-        if (Object.keys(notebookViews).length) next[path] = notebookViews;
-        else delete next[path];
-        return next;
-      });
-    }
+    const current = documentRef.current;
+    const index = current.cells.findIndex((cell) => cell.id === id);
+    if (index < 0) return;
+    const remaining = current.cells.filter((cell) => cell.id !== id);
+    const nextCells = remaining.length ? remaining : [newCell("code")];
+    const nextSelectedId = nextCells[Math.min(index, nextCells.length - 1)].id;
+    commitCellStructureChange(nextCells, nextSelectedId, "cell deletion", false);
+    if (!current.notebookPath) return;
+    const path = current.notebookPath;
+    const notebookViews = { ...(cellViewsByNotebookRef.current[path] ?? {}) };
+    delete notebookViews[id];
+    const allViews = { ...cellViewsByNotebookRef.current };
+    if (Object.keys(notebookViews).length) allViews[path] = notebookViews;
+    else delete allViews[path];
+    cellViewsByNotebookRef.current = allViews;
+    setCellViewsByNotebook(allViews);
   }
 
   function insertAfter(id: string, kind: CellKind) {
     if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
+    const current = documentRef.current.cells;
     const cell = newCell(kind);
-    updateCells((current) => {
-      const index = current.findIndex((item) => item.id === id);
-      const next = [...current];
-      next.splice(index < 0 ? next.length : index + 1, 0, cell);
-      return next;
-    });
-    setSelectedId(cell.id);
-    setEditingId(cell.id);
+    const index = current.findIndex((item) => item.id === id);
+    const next = [...current];
+    next.splice(index < 0 ? next.length : index + 1, 0, cell);
+    commitCellStructureChange(next, cell.id, "cell insertion", true);
   }
 
   function insertBefore(id: string, kind: CellKind) {
     if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
+    const current = documentRef.current.cells;
     const cell = newCell(kind);
-    updateCells((current) => {
-      const index = current.findIndex((item) => item.id === id);
-      const next = [...current];
-      next.splice(index < 0 ? 0 : index, 0, cell);
-      return next;
-    });
-    setSelectedId(cell.id);
-    setEditingId(cell.id);
+    const index = current.findIndex((item) => item.id === id);
+    const next = [...current];
+    next.splice(index < 0 ? 0 : index, 0, cell);
+    commitCellStructureChange(next, cell.id, "cell insertion", true);
   }
 
   function reviewCodexEdit() {
@@ -1602,6 +1840,7 @@ export default function App() {
   const workspaceName = status ? basename(status.config.workspace) : "workspace";
   const environmentName = status ? basename(status.config.venv) : ".venv";
   const activeLockedCellIds = notebookPath ? codexCellLocks[notebookPath] ?? [] : [];
+  const vimLayer = mode === "NAV" ? "NAV" : mode === "INSERT" || mode === "REPLACE" ? "INSERT" : "NORMAL";
   const appShellStyle = {
     "--left-pane-width": `${leftPaneWidth}px`,
     "--right-pane-width": `${rightPaneWidth}px`,
@@ -1658,10 +1897,8 @@ export default function App() {
       id: "codex.focus",
       label: "Focus Codex prompt",
       detail: "Open Codex and move focus to its prompt",
-      run: () => {
-        setRightOpen(true);
-        window.requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(".prompt-box textarea")?.focus());
-      },
+      shortcut: "C",
+      run: focusCodexPrompt,
     },
     {
       id: "editor.vim",
@@ -1673,7 +1910,7 @@ export default function App() {
       id: "help.keys",
       label: "Show keyboard shortcuts",
       detail: "Notebook navigation and app commands",
-      run: () => setNotice("Keys: ⌘/Ctrl-P quick open · ⇧⌘/Ctrl-P commands · J/K select · A/B insert · Enter edit · Escape navigate · ⌘/Ctrl-S save"),
+      run: () => setNotice("Keys: ⌘/Ctrl-P quick open · ⇧⌘/Ctrl-P commands · J/K select · A/O insert after · ⇧O insert before · C focus Codex · Escape step back · ⌘/Ctrl-S save"),
     },
   ];
   return (
@@ -1887,6 +2124,7 @@ export default function App() {
           onWorkspaceChanged={() => void refreshAfterCodexChange()}
           onTurnFinished={releaseCodexCellLocks}
           onNotebookToolCall={handleNotebookToolCall}
+          onReturnToNotebook={() => enterCellNavigation(selectedIdRef.current)}
         />
       )}
       {environmentOpen && status && (
@@ -1912,9 +2150,61 @@ export default function App() {
       )}
       <footer className="statusbar">
         <div><BranchIcon />main</div>
-        <button onClick={() => setVimEnabled((value) => !value)} className={vimEnabled ? "status-enabled" : ""}>
-          {vimEnabled ? `VIM · ${mode}` : mode}
-        </button>
+        <div className="status-vim-controls" ref={vimKeymapRef}>
+          <button
+            onClick={() => {
+              setVimEnabled((value) => !value);
+              setVimKeymapOpen(false);
+            }}
+            className={vimEnabled ? "status-enabled" : ""}
+            title={vimEnabled ? "Disable Vim bindings" : "Enable Vim bindings"}
+          >
+            {`${vimEnabled ? "VIM · " : ""}${mode}${pendingCellDeleteId ? " · D…" : ""}`}
+          </button>
+          {vimEnabled && (
+            <>
+              <button
+                type="button"
+                className={`vim-keymap-chip ${vimKeymapOpen ? "is-open" : ""}`}
+                aria-label="Show Vim notebook keybindings"
+                aria-expanded={vimKeymapOpen}
+                aria-controls="vim-keymap-popover"
+                title="Vim notebook keybindings"
+                onClick={() => setVimKeymapOpen((value) => !value)}
+              >
+                <span className={vimLayer === "NAV" ? "is-current" : ""}>NAV</span>
+                <i>›</i>
+                <span className={vimLayer === "NORMAL" ? "is-current" : ""}>NORMAL</span>
+                <i>›</i>
+                <span className={vimLayer === "INSERT" ? "is-current" : ""}>INSERT</span>
+              </button>
+              {vimKeymapOpen && (
+                <div id="vim-keymap-popover" className="vim-keymap-popover" role="dialog" aria-label="Vim notebook keybindings">
+                  <header>
+                    <strong>Vim notebook layers</strong>
+                    <span><kbd>Esc</kbd> moves left one layer</span>
+                  </header>
+                  <div className={`vim-keymap-row ${vimLayer === "NAV" ? "is-current" : ""}`}>
+                    <div><b>Cell navigation</b><em>Notebook</em></div>
+                    <p><span><kbd>J</kbd><kbd>K</kbd> move</span><span><kbd>Enter</kbd>/<kbd>I</kbd> enter editor</span></p>
+                    <p><span><kbd>A</kbd>/<kbd>O</kbd> insert after</span><span><kbd>⇧ O</kbd> insert before</span></p>
+                    <p><span><kbd>D D</kbd> delete · 500 ms</span><span><kbd>U</kbd> undo</span></p>
+                    <p><span><kbd>Ctrl R</kbd> redo</span><span><kbd>C</kbd> focus Codex</span></p>
+                  </div>
+                  <div className={`vim-keymap-row ${vimLayer === "NORMAL" ? "is-current" : ""}`}>
+                    <div><b>Vim normal</b><em>Editor commands</em></div>
+                    <p><span><kbd>I</kbd>/<kbd>A</kbd>/<kbd>O</kbd> insert mode</span><span><kbd>Esc</kbd> cell navigation</span></p>
+                  </div>
+                  <div className={`vim-keymap-row ${vimLayer === "INSERT" ? "is-current" : ""}`}>
+                    <div><b>Vim insert</b><em>Text editing</em></div>
+                    <p><span>Type to edit</span><span><kbd>Esc</kbd> Vim normal</span></p>
+                  </div>
+                  <div className="vim-keymap-footer"><kbd>Ctrl ↵</kbd> run <kbd>Shift ↵</kbd> run + next <kbd>Alt ↵</kbd> run + insert</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
         <div className="status-spacer" />
         <span>{status?.config.environment_mode === "project" ? "uv project" : "uv environment"}</span>
         <span>{environmentName}</span>

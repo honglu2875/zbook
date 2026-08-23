@@ -62,10 +62,14 @@ You can navigate the cells using keyboard.
 - Without Vim bindings, `Escape` leaves an editor and enters notebook navigation mode. With Vim enabled, it steps back one layer at a time as described below.
 - `j` / `k` or the arrow keys move between cells in navigation mode.
 - `Enter` or `i` edits the selected cell.
-- `a` inserts a code cell above; `b` or `o` inserts one below. Hover or keyboard-focus the space between cells to choose Code or Markdown explicitly.
+- `a` or `o` inserts a code cell after the selected cell; `Shift-O` inserts one before it. Hover or keyboard-focus the space between cells to choose Code or Markdown explicitly.
+- `dd`, completed within 500 ms, deletes the selected cell. `u` undoes a cell insertion or deletion, and Vim's `Ctrl-R` redoes it. This structural history is separate from text undo inside an editor.
+- `c` focuses the Codex prompt. `Escape` from that prompt returns focus to the selected notebook cell; an open Codex popup is dismissed first.
 - `Ctrl-Enter` runs in place, `Shift-Enter` runs and advances, and `Alt-Enter` runs and inserts.
 
 Vim bindings are opt-in and can be toggled from the status bar on the lower left. The preference persists across workspaces in browser storage. The navigation resembles Vim, but there are three layers: `[Cell Navigation] -> [Vim Normal] -> [Vim Insert]`. `Enter` or `i` moves from cell navigation into Vim normal mode, and another `i` enters Vim insert mode. `Escape` reverses one layer at a time: insert to normal, then normal to cell navigation. Cell-level operations only happen in Cell Navigation mode.
+
+The keybindings are not customizable so far, but if I get other users at all, we can consider making it customizable.
 
 ## Development
 
