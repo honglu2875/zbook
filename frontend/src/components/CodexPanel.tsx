@@ -2,6 +2,10 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { NotebookCell } from "../model/notebook";
 import {
+  selectionLineLabel,
+  type NotebookSelectionQuote,
+} from "../model/selectionContext";
+import {
   NOTEBOOK_APPLY_TOOL,
   NOTEBOOK_LOCK_TOOL,
   NOTEBOOK_PROPOSE_TOOL,
@@ -93,6 +97,7 @@ interface CodexPanelProps {
   workspace: string | null;
   notebookPath: string | null;
   selectedCell: NotebookCell | null;
+  selectionQuote: NotebookSelectionQuote | null;
   onBeforePrompt: () => Promise<boolean>;
   onWorkspaceChanged: () => void;
   onTurnStarted: () => void;
@@ -103,6 +108,7 @@ interface CodexPanelProps {
     context: NotebookToolContext,
   ) => Promise<NotebookToolResponse>;
   onReturnToNotebook: () => void;
+  onClearSelectionQuote: () => void;
 }
 
 interface QuotaView {
@@ -279,12 +285,14 @@ export function CodexPanel({
   workspace,
   notebookPath,
   selectedCell,
+  selectionQuote,
   onBeforePrompt,
   onWorkspaceChanged,
   onTurnStarted,
   onTurnFinished,
   onNotebookToolCall,
   onReturnToNotebook,
+  onClearSelectionQuote,
 }: CodexPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -974,13 +982,17 @@ export function CodexPanel({
       prompt: clean,
       model: modelRef.current || null,
       effort: effortRef.current || null,
-      context: includeContext ? {
-        notebook: notebookPath,
-        cellKind: selectedCell?.kind,
-        cellId: selectedCell?.id,
+      context: includeContext || selectionQuote ? {
+        ...(includeContext ? {
+          notebook: notebookPath,
+          cellKind: selectedCell?.kind,
+          cellId: selectedCell?.id,
+        } : {}),
+        ...(selectionQuote ? { selection: selectionQuote } : {}),
       } : null,
     }));
     setPrompt("");
+    if (selectionQuote) onClearSelectionQuote();
     setProblem(null);
   }
 
@@ -1249,6 +1261,25 @@ export function CodexPanel({
         {problem && <button className="codex-problem" onClick={() => setProblem(null)}>{problem}</button>}
       </div>
       <form className="prompt-box" onSubmit={submit}>
+        {selectionQuote && (
+          <section className="prompt-selection-quote" aria-label="Quoted notebook selection">
+            <header>
+              <span>
+                <SparkIcon />
+                <strong>{selectionLineLabel(selectionQuote)}</strong>
+                <em>{selectionQuote.notebookPath.split("/").at(-1)} · {selectionQuote.cellKind}</em>
+              </span>
+              <button
+                type="button"
+                onClick={onClearSelectionQuote}
+                disabled={busy}
+                aria-label="Remove quoted selection"
+                title="Remove quoted selection"
+              ><CloseIcon /></button>
+            </header>
+            <pre>{selectionQuote.text}</pre>
+          </section>
+        )}
         <textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}

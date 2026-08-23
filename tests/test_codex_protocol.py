@@ -54,6 +54,36 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("notebook cell id: cell-42", prompt)
         self.assertNotIn("print(42)", prompt)
 
+    def test_prompt_context_includes_a_bounded_immutable_selection(self) -> None:
+        prompt = prompt_with_context(
+            "Why does this fail?",
+            {
+                "selection": {
+                    "notebookPath": "analysis.ipynb",
+                    "cellKind": "code",
+                    "cellId": "cell-42",
+                    "startLine": 3,
+                    "endLine": 4,
+                    "text": "values = np.arange(10)\nvalues.mean()",
+                }
+            },
+        )
+
+        self.assertIn("Selected immutable quote from code lines 3–4", prompt)
+        self.assertIn("analysis.ipynb", prompt)
+        self.assertIn("notebook cell id: cell-42", prompt)
+        self.assertIn("values = np.arange(10)\nvalues.mean()", prompt)
+        self.assertEqual(prompt.count("<zbook_selection>"), 1)
+
+        oversized = prompt_with_context(
+            "Inspect this",
+            {"selection": {"text": "x" * 20_100}},
+        )
+        excerpt = oversized.partition("<zbook_selection>\n")[2].partition(
+            "\n</zbook_selection>"
+        )[0]
+        self.assertEqual(excerpt, "x" * 20_000)
+
     async def test_dispatch_resolves_response(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             client = CodexAppServer(Path(directory))
@@ -205,6 +235,14 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
                 "cellKind": "code",
                 "cellId": "cell-42",
                 "source": 'print("before")\n\nZbook context supplied by the user:\nprint("after")',
+                "selection": {
+                    "notebookPath": "analysis.ipynb",
+                    "cellKind": "code",
+                    "cellId": "cell-42",
+                    "startLine": 2,
+                    "endLine": 2,
+                    "text": "private_selected_source()",
+                },
             },
         )
         messages = thread_messages(
@@ -293,6 +331,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Zbook context supplied by the user", rendered)
         self.assertNotIn("analysis.ipynb", rendered)
         self.assertNotIn("cell-42", rendered)
+        self.assertNotIn("private_selected_source", rendered)
 
     def test_dynamic_tool_response_matches_app_server_shape(self) -> None:
         response = dynamic_tool_response(True, {"documentRevision": 7, "saved": True})

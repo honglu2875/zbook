@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { CellProposal } from "../model/cellProposals";
 import type { CellKind, NotebookCell } from "../model/notebook";
+import type { CellTextSelection } from "../model/selectionContext";
 import { CellEditor } from "./CellEditor";
 import {
   ChevronIcon,
@@ -54,6 +55,7 @@ interface NotebookProps {
   onReload: () => void;
   onModeChange: (mode: string) => void;
   onStopEdit: (id: string) => void;
+  onQuoteSelection: (id: string, kind: CellKind, selection: CellTextSelection) => void;
 }
 
 function ImageOutput({ text, data }: { text: string; data: string }) {
@@ -197,6 +199,7 @@ export function Notebook({
   onReload,
   onModeChange,
   onStopEdit,
+  onQuoteSelection,
 }: NotebookProps) {
   const filename = path.split("/").at(-1) ?? path;
   const title = filename.endsWith(".ipynb") ? filename.slice(0, -6) : filename;
@@ -391,6 +394,11 @@ export function Notebook({
                               onModeChange(nextMode);
                               if (nextMode === "NAV") onStopEdit(cell.id);
                             }}
+                            onQuoteSelection={(selection) => onQuoteSelection(
+                              cell.id,
+                              cell.kind,
+                              selection,
+                            )}
                           />
                         )}
                       </div>

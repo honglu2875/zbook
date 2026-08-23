@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { unifiedMergeView } from "@codemirror/merge";
@@ -8,7 +8,19 @@ import { getCM, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import type { CellKind } from "../model/notebook";
+import {
+  selectionFromSource,
+  selectionLineLabel,
+  type CellTextSelection,
+} from "../model/selectionContext";
 import { zbookTheme } from "../editor/theme";
+import { SparkIcon } from "./icons";
+
+interface SelectionAction {
+  selection: CellTextSelection;
+  left: number;
+  top: number;
+}
 
 interface CellEditorProps {
   kind: CellKind;
@@ -21,6 +33,7 @@ interface CellEditorProps {
   onRun: (advance: boolean, insert: boolean) => void;
   onFocus: () => void;
   onModeChange: (mode: string) => void;
+  onQuoteSelection: (selection: CellTextSelection) => void;
 }
 
 function currentVimMode(editor: EditorView): string {
@@ -41,12 +54,15 @@ export function CellEditor({
   onRun,
   onFocus,
   onModeChange,
+  onQuoteSelection,
 }: CellEditorProps) {
+  const shell = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const synchronizingSource = useRef(false);
-  const callbacks = useRef({ onChange, onRun, onFocus, onModeChange });
-  callbacks.current = { onChange, onRun, onFocus, onModeChange };
+  const [selectionAction, setSelectionAction] = useState<SelectionAction | null>(null);
+  const callbacks = useRef({ onChange, onRun, onFocus, onModeChange, onQuoteSelection });
+  callbacks.current = { onChange, onRun, onFocus, onModeChange, onQuoteSelection };
 
   useEffect(() => {
     if (!host.current) return;
@@ -131,6 +147,34 @@ export function CellEditor({
           if (update.docChanged && !synchronizingSource.current) {
             callbacks.current.onChange(update.state.doc.toString());
           }
+          if (
+            update.selectionSet
+            || update.docChanged
+            || update.focusChanged
+            || update.geometryChanged
+          ) {
+            const range = update.state.selection.main;
+            const selection = update.view.hasFocus
+              ? selectionFromSource(update.state.doc.toString(), range.anchor, range.head)
+              : null;
+            const shellBounds = shell.current?.getBoundingClientRect();
+            const cursorBounds = selection
+              ? update.view.coordsAtPos(range.head, range.head < range.anchor ? -1 : 1)
+              : null;
+            if (!selection || !shellBounds || !cursorBounds) {
+              setSelectionAction(null);
+            } else {
+              const buttonWidth = selection.tooLarge ? 132 : 96;
+              setSelectionAction({
+                selection,
+                left: Math.max(
+                  7,
+                  Math.min(shellBounds.width - buttonWidth - 7, cursorBounds.left - shellBounds.left),
+                ),
+                top: Math.max(5, cursorBounds.top - shellBounds.top - 27),
+              });
+            }
+          }
         }),
       ],
     });
@@ -171,5 +215,37 @@ export function CellEditor({
     }
   }, [source]);
 
-  return <div className="cell-editor" ref={host} />;
+  return (
+    <div className="cell-editor-shell" ref={shell}>
+      <div className="cell-editor" ref={host} />
+      {selectionAction && (
+        <button
+          type="button"
+          className="cell-selection-action"
+          style={{ left: selectionAction.left, top: selectionAction.top }}
+          disabled={selectionAction.selection.tooLarge}
+          title={selectionAction.selection.tooLarge
+            ? "Select a smaller excerpt (20,000 characters maximum)"
+            : `Quote ${selectionLineLabel(selectionAction.selection)} to Codex`}
+          aria-label={selectionAction.selection.tooLarge
+            ? "Selection is too large to quote to Codex"
+            : `Ask Codex about ${selectionLineLabel(selectionAction.selection).toLowerCase()}`}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!selectionAction.selection.tooLarge) {
+              callbacks.current.onQuoteSelection(selectionAction.selection);
+            }
+          }}
+        >
+          <SparkIcon />
+          {selectionAction.selection.tooLarge ? "Selection too large" : "Ask Codex"}
+        </button>
+      )}
+    </div>
+  );
 }

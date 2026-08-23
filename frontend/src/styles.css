@@ -453,7 +453,29 @@ body.is-resizing-pane .app-shell { transition: none; }
 .cell-title-lock { display: grid; place-items: center; width: 18px; height: 18px; color: #b18c50; }
 .cell-title-lock svg { width: 10px; height: 10px; }
 .cell-source { min-width: 0; }
+.cell-editor-shell { position: relative; min-width: 0; }
 .cell-editor { position: relative; min-height: 48px; }
+.cell-selection-action {
+  position: absolute;
+  z-index: 24;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 23px;
+  padding: 3px 7px;
+  border: 1px solid #585044;
+  border-radius: 999px;
+  background: #292720f2;
+  color: #d0ae73;
+  font: 9.5px/1 var(--font-ui);
+  box-shadow: 0 5px 15px #0007;
+  cursor: pointer;
+  animation: selection-action-in 90ms ease-out;
+}
+.cell-selection-action:hover:not(:disabled) { border-color: #7a684e; background: #322e25; color: #e1bf81; }
+.cell-selection-action:disabled { border-color: #4a3637; background: #2a2223f2; color: #b47779; cursor: default; }
+.cell-selection-action svg { width: 11px; height: 11px; fill: currentColor; stroke: currentColor; }
+@keyframes selection-action-in { from { opacity: 0; transform: translateY(2px) scale(.98); } }
 .notebook-cell.has-codex-proposal .cell-body { border-color: transparent; background: transparent; }
 .notebook-cell.has-codex-proposal .cm-editor.cm-merge-b .cm-changedLine,
 .notebook-cell.has-codex-proposal .cm-editor.cm-merge-b .cm-inlineChangedLine { background: #31533b52; }
@@ -722,6 +744,17 @@ body.is-resizing-pane .app-shell { transition: none; }
 
 .prompt-box { margin: 0 11px 11px; border: 1px solid #3a3e42; background: #202326; box-shadow: 0 6px 18px #0002; }
 .prompt-box:focus-within { border-color: #555044; }
+.prompt-selection-quote { margin: 7px 7px 2px; overflow: hidden; border: 1px solid #3c4246; border-radius: 5px; background: #1b1e20; }
+.prompt-selection-quote header { display: flex; align-items: center; justify-content: space-between; min-height: 27px; padding: 0 5px 0 8px; border-bottom: 1px solid #303438; }
+.prompt-selection-quote header > span { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.prompt-selection-quote header svg { width: 10px; height: 10px; flex: 0 0 auto; color: #b79560; fill: currentColor; stroke: currentColor; }
+.prompt-selection-quote header strong { color: #c9b084; font-size: 9.5px; font-weight: 580; white-space: nowrap; }
+.prompt-selection-quote header em { overflow: hidden; color: #686f75; font: 8.5px var(--font-mono); font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.prompt-selection-quote header button { display: grid; width: 20px; height: 20px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: 3px; background: transparent; color: #686f75; cursor: pointer; }
+.prompt-selection-quote header button:hover { background: #292d30; color: #c98b8d; }
+.prompt-selection-quote header button:disabled { color: #484e53; cursor: default; }
+.prompt-selection-quote header button svg { width: 9px; height: 9px; color: inherit; fill: none; }
+.prompt-selection-quote pre { max-height: 76px; margin: 0; overflow: auto; padding: 7px 8px; color: #9ca3a8; font: 9.5px/1.45 var(--font-mono); white-space: pre; scrollbar-color: #3b4044 transparent; scrollbar-width: thin; }
 .prompt-box textarea { display: block; width: 100%; resize: none; padding: 10px 11px 4px; border: 0; outline: 0; background: transparent; color: #d5d8da; font: 13px/1.5 var(--font-ui); }
 .prompt-box textarea::placeholder { color: #656b71; }
 .prompt-actions { display: flex; align-items: center; height: 31px; padding: 0 6px 0 9px; }
