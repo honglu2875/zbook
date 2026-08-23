@@ -45,3 +45,9 @@ export function selectionLineLabel(selection: Pick<CellTextSelection, "startLine
     ? `Line ${selection.startLine}`
     : `Lines ${selection.startLine}–${selection.endLine}`;
 }
+
+export function selectionPreview(text: string, maximumLength = 160): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length <= maximumLength) return compact;
+  return `${compact.slice(0, Math.max(0, maximumLength - 1)).trimEnd()}…`;
+}

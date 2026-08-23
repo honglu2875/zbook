@@ -3,6 +3,7 @@ import {
   MAX_QUOTED_SELECTION_CHARACTERS,
   selectionFromSource,
   selectionLineLabel,
+  selectionPreview,
 } from "./selectionContext";
 
 describe("selected notebook context", () => {
@@ -39,5 +40,13 @@ describe("selected notebook context", () => {
       0,
       MAX_QUOTED_SELECTION_CHARACTERS + 1,
     )?.tooLarge).toBe(true);
+  });
+
+  it("creates a compact one-line composer preview without changing the quote", () => {
+    const source = "values = np.arange(10)\n    values.mean()";
+
+    expect(selectionPreview(source)).toBe("values = np.arange(10) values.mean()");
+    expect(selectionPreview(source, 18)).toBe("values = np.arang…");
+    expect(source).toContain("\n    ");
   });
 });

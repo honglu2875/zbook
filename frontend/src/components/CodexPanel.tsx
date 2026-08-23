@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import type { NotebookCell } from "../model/notebook";
 import {
   selectionLineLabel,
+  selectionPreview,
   type NotebookSelectionQuote,
 } from "../model/selectionContext";
 import {
@@ -1277,7 +1278,9 @@ export function CodexPanel({
                 title="Remove quoted selection"
               ><CloseIcon /></button>
             </header>
-            <pre>{selectionQuote.text}</pre>
+            <pre title="Compact preview; the full selection will be sent to Codex">
+              {selectionPreview(selectionQuote.text)}
+            </pre>
           </section>
         )}
         <textarea
