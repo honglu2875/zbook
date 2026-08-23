@@ -9,7 +9,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import ConfigurationError
+from .config import AppConfig, ConfigurationError
 
 _SKIPPED_DIRECTORIES = {
     ".git",
@@ -43,6 +43,18 @@ def is_uv_environment(path: str | Path) -> bool:
         return any(line.partition("=")[0].strip() == "uv" for line in lines)
     except OSError:
         return False
+
+
+def workspace_uv_environment(workspace: str | Path) -> Path | None:
+    """Return a usable uv-managed ``workspace/.venv`` without traversing the tree."""
+    root = Path(workspace).expanduser().resolve()
+    candidate = root / ".venv"
+    if candidate.is_symlink() or not candidate.is_dir() or not is_uv_environment(candidate):
+        return None
+    try:
+        return AppConfig.resolve(root, candidate).venv
+    except (OSError, ConfigurationError):
+        return None
 
 
 @dataclass(frozen=True, slots=True)

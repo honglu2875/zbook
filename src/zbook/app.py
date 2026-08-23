@@ -21,6 +21,7 @@ from .environments import (
     discover_uv_environments,
     environment_path,
     is_uv_environment,
+    workspace_uv_environment,
 )
 from .handlers import (
     CanonicalUrlHandler,
@@ -50,7 +51,8 @@ class ZbookApp(ExtensionApp):
         default_value="",
         help=(
             "Optional uv-managed virtual environment, absolute or relative to the workspace. "
-            "When omitted, Zbook creates a temporary environment under /tmp."
+            "When omitted, Zbook uses a valid workspace .venv or creates a temporary "
+            "environment under /tmp."
         ),
         config=True,
     )
@@ -74,6 +76,8 @@ class ZbookApp(ExtensionApp):
         selected_venv: str | Path
         if self.venv:
             selected_venv = self.venv
+        elif detected_venv := workspace_uv_environment(workspace):
+            selected_venv = detected_venv
         else:
             self.temporary_environment_root, selected_venv = create_temporary_uv_environment()
             atexit.register(self._cleanup_temporary_environment)

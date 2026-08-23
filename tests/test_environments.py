@@ -12,6 +12,7 @@ from zbook.environments import (
     discover_uv_environments,
     environment_path,
     is_uv_environment,
+    workspace_uv_environment,
 )
 
 
@@ -26,6 +27,26 @@ def make_environment(project: Path, *, uv: bool = True) -> Path:
 
 
 class EnvironmentDiscoveryTests(unittest.TestCase):
+    def test_prefers_usable_uv_environment_at_workspace_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            expected = make_environment(workspace)
+
+            self.assertEqual(workspace_uv_environment(workspace), expected.resolve())
+
+    def test_ignores_plain_or_incomplete_workspace_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            make_environment(workspace, uv=False)
+            self.assertIsNone(workspace_uv_environment(workspace))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            venv = workspace / ".venv"
+            venv.mkdir()
+            (venv / "pyvenv.cfg").write_text("uv = 0.12.0\n", encoding="utf-8")
+            self.assertIsNone(workspace_uv_environment(workspace))
+
     def test_discovers_nested_uv_projects_and_not_plain_venvs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
