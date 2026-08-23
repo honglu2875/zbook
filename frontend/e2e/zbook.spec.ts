@@ -63,7 +63,9 @@ test("Shift+Enter renders markdown and advances to the next cell", async ({ page
   const editor = first.locator(".cm-content");
   await editor.click();
   await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.insertText("## Updated `heading`");
+  await page.keyboard.insertText(
+    "## Updated `heading`\n\nAmbient paragraph.\n\n- First point\n- Second point",
+  );
   await page.keyboard.press("Shift+Enter");
 
   await expect(first.locator(".markdown-rendered")).toContainText("Updated heading");
@@ -75,6 +77,20 @@ test("Shift+Enter renders markdown and advances to the next cell", async ({ page
     code: Number.parseFloat(getComputedStyle(element.querySelector("code")!).fontSize),
   }));
   expect(fontSizes.code / fontSizes.heading).toBeGreaterThanOrEqual(.84);
+  const typography = await first.locator(".markdown-rendered").evaluate((element) => {
+    const paragraph = element.querySelector("p");
+    const items = element.querySelectorAll("li");
+    if (!paragraph || items.length < 2) throw new Error("Markdown list did not render");
+    return {
+      paragraphSize: Number.parseFloat(getComputedStyle(paragraph).fontSize),
+      listSize: Number.parseFloat(getComputedStyle(items[0]).fontSize),
+      listLineHeight: Number.parseFloat(getComputedStyle(items[0]).lineHeight),
+      itemGap: Number.parseFloat(getComputedStyle(items[1]).marginTop),
+    };
+  });
+  expect(typography.listSize).toBe(typography.paragraphSize);
+  expect(typography.listLineHeight / typography.listSize).toBeCloseTo(1.6, 1);
+  expect(typography.itemGap).toBe(3);
   await expect(second).toHaveClass(/is-selected/);
 });
 
@@ -213,4 +229,62 @@ test("toggles a scaled image at native size with a single click", async ({ page 
 
   await imageFrame.click({ position: { x: 10, y: 10 } });
   await expect(imageFrame).toHaveAttribute("aria-pressed", "false");
+});
+
+test("renders a live Jupyter widget and sends interaction back to Python", async ({ page }) => {
+  await openNotebook(page, "widgets.ipynb");
+  const first = page.locator(".notebook-cell").first();
+  const second = page.locator(".notebook-cell").nth(1);
+
+  await first.getByRole("button", { name: "Run cell" }).click();
+  const handle = first.locator(".noUi-handle").first();
+  await expect(handle).toBeVisible();
+  await handle.focus();
+  await handle.press("ArrowRight");
+
+  await second.getByRole("button", { name: "Run cell" }).click();
+  await expect(second.locator(".cell-output")).toContainText("5");
+});
+
+test("drags a Matplotlib Slider and redraws its live figure", async ({ page }) => {
+  await openNotebook(page, "matplotlib-widget.ipynb");
+  const first = page.locator(".notebook-cell").first();
+  const second = page.locator(".notebook-cell").nth(1);
+
+  await page.getByRole("button", { name: "Run all" }).click();
+  // ipympl layers an off-screen rendering canvas beneath its event canvas.
+  // Exercise the foreground canvas that receives the user's pointer input.
+  const canvas = first.locator(".jupyter-matplotlib-canvas-container canvas").last();
+  await expect(canvas).toBeVisible({ timeout: 15_000 });
+  await expect(second.locator(".cell-output")).toContainText("run-0");
+
+  const initialBounds = await canvas.boundingBox();
+  expect(initialBounds).not.toBeNull();
+  await canvas.hover({
+    position: {
+      x: initialBounds!.width * .19,
+      y: initialBounds!.height * .895,
+    },
+  });
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  const sliderY = bounds!.y + bounds!.height * .895;
+  const sliderStartX = bounds!.x + bounds!.width * .19;
+  const sliderEndX = bounds!.x + bounds!.width * .64;
+  await page.mouse.move(sliderStartX, sliderY);
+  await page.mouse.down();
+  await page.waitForTimeout(120);
+  for (let step = 1; step <= 8; step += 1) {
+    await page.mouse.move(
+      sliderStartX + (sliderEndX - sliderStartX) * (step / 8),
+      sliderY,
+    );
+    await page.waitForTimeout(30);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+
+  await second.getByRole("button", { name: "Run cell" }).click();
+  await expect(second.locator(".cell-output")).toContainText("2");
+  await expect(second.locator(".cell-output")).toContainText("Expert load — run-2, block 4");
 });

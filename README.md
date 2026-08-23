@@ -15,6 +15,7 @@ Codex runs through the locally installed Codex CLI. It can use your existing CLI
 - A compact React and CodeMirror notebook editor with Python highlighting, Markdown rendering, multiple tabs, cell reordering, collapsible outputs, `#@title` cell headings, and optional Vim bindings.
 - A workspace-scoped file tree with create, rename, upload, delete, refresh, and external-change protection.
 - One IPython kernel per open notebook, launched from a selectable `uv` environment.
+- Live Jupyter widgets, including interactive Matplotlib figures through `ipympl`.
 - Live package installation and removal without coupling the notebook environment to Zbook's own runtime.
 - A persistent Codex panel with model and effort controls, account status, thread history, selected-line context, and direct notebook cell tools.
 - Reviewable Codex edits: streamed red/green proposals stay separate from accepted notebook content until you apply, apply and run, or reject them.
@@ -76,6 +77,15 @@ zbook run -- --ZbookApp.venv=/path/to/project/.venv
 ```
 
 The environment control at the bottom of the workspace pane can switch among detected `uv` environments, accept a path, and install or uninstall packages live. Each notebook owns its kernel, so changing tabs does not accidentally reuse another notebook's execution state.
+
+Interactive controls use the standard Jupyter widget protocol. Core `ipywidgets` controls work when `ipywidgets` is installed in the selected environment. For a draggable Matplotlib figure or `matplotlib.widgets.Slider`, install `ipympl` in that environment and select the widget backend before creating the figure:
+
+```python
+%matplotlib widget
+import matplotlib.pyplot as plt
+```
+
+The normal inline backend intentionally remains static: creating a `Slider` while it is active produces a zoomable PNG, not an interactive canvas. Zbook bundles the core Jupyter controls and the matching `ipympl` frontend; outputs from other third-party widget libraries report a clear unsupported-module message instead of loading arbitrary JavaScript from the network.
 
 ## Notebook workflow
 

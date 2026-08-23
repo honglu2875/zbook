@@ -10,6 +10,7 @@ export interface ManagedKernel {
     code: string,
     onUpdate?: (result: ExecutionResult) => void,
   ): Promise<ExecutionResult>;
+  renderWidget(modelId: string, element: HTMLElement): Promise<() => void>;
   interrupt(): Promise<void>;
   shutdown(): Promise<void>;
 }

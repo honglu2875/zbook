@@ -62,6 +62,7 @@ interface NotebookProps {
   onSave: () => void;
   onExport: () => void;
   onReload: () => void;
+  onRenderWidget: (modelId: string, element: HTMLElement) => Promise<() => void>;
   onModeChange: (mode: string) => void;
   onStopEdit: (id: string) => void;
   onQuoteSelection: (id: string, kind: CellKind, selection: CellTextSelection) => void;
@@ -142,13 +143,62 @@ function ImageOutput({ text, data }: { text: string; data: string }) {
   );
 }
 
-function RichOutput({ cellId, index, type, text, data }: {
+function WidgetOutput({
+  modelId,
+  onRender,
+}: {
+  modelId: string;
+  onRender: (modelId: string, element: HTMLElement) => Promise<() => void>;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    let active = true;
+    let dispose: (() => void) | null = null;
+    setState("loading");
+    setError("");
+    void onRender(modelId, element).then((cleanup) => {
+      if (!active) {
+        cleanup();
+        return;
+      }
+      dispose = cleanup;
+      setState("ready");
+    }).catch((reason: unknown) => {
+      if (!active) return;
+      setError(reason instanceof Error ? reason.message : String(reason));
+      setState("error");
+    });
+    return () => {
+      active = false;
+      dispose?.();
+    };
+  }, [modelId, onRender]);
+
+  return (
+    <div className="zbook-widget-output">
+      <div ref={host} className="widget-output-host" />
+      {state === "loading" && <div className="widget-output-state">Connecting interactive output…</div>}
+      {state === "error" && <div className="widget-output-state is-error">{error}</div>}
+    </div>
+  );
+}
+
+function RichOutput({ cellId, index, type, text, data, onRenderWidget }: {
   cellId: string;
   index: number;
-  type: "text" | "error" | "html" | "image";
+  type: "text" | "error" | "html" | "image" | "widget";
   text: string;
   data?: string;
+  onRenderWidget: (modelId: string, element: HTMLElement) => Promise<() => void>;
 }) {
+  if (type === "widget" && data) {
+    return <WidgetOutput modelId={data} onRender={onRenderWidget} />;
+  }
   if (type === "image" && data) {
     return <ImageOutput text={text} data={data} />;
   }
@@ -207,6 +257,7 @@ export function Notebook({
   onSave,
   onExport,
   onReload,
+  onRenderWidget,
   onModeChange,
   onStopEdit,
   onQuoteSelection,
@@ -499,7 +550,13 @@ export function Notebook({
                         <div className={`cell-output ${proposal ? "is-proposal-stale" : ""} ${view.outputLimited ? "is-height-limited" : ""}`}>
                           {proposal && <div className="cell-output-context">Output from the accepted source</div>}
                           {cell.outputs.map((output, index) => (
-                            <RichOutput key={`${cell.id}-${index}`} cellId={cell.id} index={index} {...output} />
+                            <RichOutput
+                              key={`${cell.id}-${index}`}
+                              cellId={cell.id}
+                              index={index}
+                              onRenderWidget={onRenderWidget}
+                              {...output}
+                            />
                           ))}
                         </div>
                       )}

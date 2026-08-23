@@ -9,6 +9,7 @@ This document defines the compatibility and security boundary Zbook intends to c
 | Python | 3.11 or newer | Package metadata and automated tests |
 | Jupyter Server | 2.15 through the current 2.x line | Locked integration tests |
 | Notebook format | nbformat 4 | Read, edit, execute, and export tests |
+| Interactive output | ipywidgets 8 and current `ipympl` | Real widget protocol and Matplotlib slider browser tests |
 | uv | A current CLI available on `PATH` | Startup diagnostics and environment tests |
 | Browser | Current Chromium-based desktop browser | Automated Playwright journeys |
 | Codex | A Codex CLI with `app-server` support | Protocol tests and startup diagnostics |
@@ -41,6 +42,8 @@ Those internals may change in a minor release when the bundled Python backend an
 Zbook is supported as a local, single-user notebook application. Its narrow scope is intentional. It is not a hosted notebook service, a multi-user Jupyter deployment, a collaborative editor, or a complete JupyterLab replacement. Terminals, debuggers, dashboards, arbitrary server extensions, and an extension marketplace are outside the 1.x scope.
 
 Large notebooks and rich outputs are supported within the practical memory limits of the browser and kernel process, but Zbook does not currently virtualize thousands of rendered cells. A report about poor performance should include notebook size, cell count, output types, browser, and operating system; remove private data before attaching a notebook.
+
+Core `ipywidgets` controls and `ipympl` are bundled frontend integrations. Arbitrary third-party widget modules are outside the 1.x compatibility contract; Zbook reports them as unsupported instead of downloading executable frontend code at runtime.
 
 ## Security boundary
 

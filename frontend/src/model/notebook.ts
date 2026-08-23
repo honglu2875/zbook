@@ -30,7 +30,7 @@ export interface RawNotebook {
 }
 
 export interface NotebookOutput {
-  type: "text" | "error" | "html" | "image";
+  type: "text" | "error" | "html" | "image" | "widget";
   text: string;
   data?: string;
   raw: RawNotebookOutput;
@@ -88,8 +88,22 @@ export function outputFromRaw(output: RawNotebookOutput): NotebookOutput {
 
   const data = output.data ?? {};
   const plain = asText(data["text/plain"]);
+  const widget = data["application/vnd.jupyter.widget-view+json"];
   const html = asText(data["text/html"]);
   const png = asText(data["image/png"]);
+  if (
+    widget
+    && typeof widget === "object"
+    && !Array.isArray(widget)
+    && typeof (widget as Record<string, unknown>).model_id === "string"
+  ) {
+    return {
+      type: "widget",
+      text: plain || "Interactive widget",
+      data: (widget as Record<string, unknown>).model_id as string,
+      raw: output,
+    };
+  }
   if (html) return { type: "html", text: plain, data: html, raw: output };
   if (png) return { type: "image", text: plain, data: png, raw: output };
   return { type: "text", text: plain || "[rich output]", raw: output };

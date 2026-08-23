@@ -58,4 +58,28 @@ describe("notebook output serialization", () => {
     });
     expect(invalidDisplayData.execution_count).toBe(11);
   });
+
+  it("recognizes a live Jupyter widget view without changing its saved MIME bundle", () => {
+    const raw: RawNotebookOutput = {
+      output_type: "display_data",
+      data: {
+        "application/vnd.jupyter.widget-view+json": {
+          version_major: 2,
+          version_minor: 0,
+          model_id: "widget-model-1",
+        },
+        "text/plain": "IntSlider(value=4)",
+      },
+      metadata: {},
+    };
+
+    const output = outputFromRaw(raw);
+
+    expect(output).toMatchObject({
+      type: "widget",
+      text: "IntSlider(value=4)",
+      data: "widget-model-1",
+    });
+    expect(output.raw).toBe(raw);
+  });
 });

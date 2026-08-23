@@ -25,6 +25,10 @@ class FakeKernel implements ManagedKernel {
     return { outputs: [], executionCount: 1 };
   }
 
+  async renderWidget(): Promise<() => void> {
+    return () => undefined;
+  }
+
   async interrupt(): Promise<void> {}
 }
 

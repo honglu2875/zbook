@@ -1,6 +1,14 @@
 const documentBase = new URL(".", window.location.href);
 const launchToken = new URL(window.location.href).searchParams.get("token");
 
+export function jupyterServerUrl(): URL {
+  return new URL("../", documentBase);
+}
+
+export function jupyterAuthToken(): string {
+  return launchToken ?? "";
+}
+
 function authenticated(url: URL): URL {
   if (launchToken && !url.searchParams.has("token")) url.searchParams.set("token", launchToken);
   return url;

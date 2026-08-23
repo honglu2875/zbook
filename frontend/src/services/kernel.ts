@@ -1,14 +1,16 @@
+import type { Kernel, KernelMessage } from "@jupyterlab/services";
 import {
   outputFromRaw,
   richOutputFromKernel,
   type NotebookOutput,
   type RawNotebookOutput,
 } from "../model/notebook";
-import { jupyterUrl, jupyterWebsocketUrl, requestJson } from "./http";
+import { jupyterUrl, requestJson } from "./http";
+import type { KernelRuntime } from "./widgetRuntime";
 
 export type KernelState = "disconnected" | "starting" | "idle" | "busy" | "dead" | "error";
 
-interface KernelModel {
+interface KernelModel extends Kernel.IModel {
   id: string;
   name: string;
   execution_state: string;
@@ -16,27 +18,11 @@ interface KernelModel {
   connections: number;
 }
 
-interface JupyterMessage {
-  channel: "shell" | "iopub" | "stdin" | "control";
-  header: {
-    msg_id: string;
-    msg_type: string;
-    session: string;
-    username?: string;
-    date?: string;
-    version?: string;
-  };
-  parent_header: { msg_id?: string };
-  metadata: Record<string, unknown>;
-  content: Record<string, unknown>;
-  buffers?: unknown[];
-}
-
 interface PendingExecution {
   outputs: RawNotebookOutput[];
   executionCount: number | null;
-  resolve: (result: ExecutionResult) => void;
-  reject: (error: Error) => void;
+  clearOnNextOutput: boolean;
+  displayIds: Map<string, number[]>;
   onUpdate?: (result: ExecutionResult) => void;
 }
 
@@ -46,11 +32,11 @@ export interface ExecutionResult {
 }
 
 export class KernelClient {
-  private socket: WebSocket | null = null;
+  private runtime: KernelRuntime | null = null;
   private kernelId: string | null = null;
   private readonly sessionId = crypto.randomUUID();
-  private readonly pending = new Map<string, PendingExecution>();
   private state: KernelState = "disconnected";
+  private startPromise: Promise<void> | null = null;
 
   constructor(private readonly onState: (state: KernelState) => void) {}
 
@@ -64,45 +50,38 @@ export class KernelClient {
   }
 
   async start(notebookPath: string): Promise<void> {
-    if (this.socket?.readyState === WebSocket.OPEN && this.kernelId) return;
+    if (
+      this.runtime
+      && !this.runtime.kernel.isDisposed
+      && this.runtime.kernel.connectionStatus !== "disconnected"
+    ) return;
+    if (this.startPromise) return this.startPromise;
+    this.startPromise = this.startRuntime(notebookPath).finally(() => {
+      this.startPromise = null;
+    });
+    return this.startPromise;
+  }
+
+  private async startRuntime(notebookPath: string): Promise<void> {
+    await this.disposeRuntime(true);
     this.setState("starting");
+    let model: KernelModel | null = null;
     try {
-      const model = await requestJson<KernelModel>(jupyterUrl("kernels"), {
+      model = await requestJson<KernelModel>(jupyterUrl("kernels"), {
         method: "POST",
         body: JSON.stringify({ name: "zbook", path: notebookPath }),
       });
       this.kernelId = model.id;
-      const url = jupyterWebsocketUrl(`kernels/${model.id}/channels`);
-      url.searchParams.set("session_id", this.sessionId);
-      const socket = new WebSocket(url);
-      this.socket = socket;
-      socket.onmessage = (event) => this.handleMessage(event.data);
-      socket.onclose = () => this.handleClose(new Error("Kernel connection closed"));
-      socket.onerror = () => this.setState("error");
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = window.setTimeout(() => reject(new Error("Kernel connection timed out")), 10_000);
-        socket.onopen = () => {
-          window.clearTimeout(timeout);
-          this.setState("idle");
-          resolve();
-        };
-        socket.addEventListener("error", () => {
-          window.clearTimeout(timeout);
-          reject(new Error("Could not open the kernel WebSocket"));
-        }, { once: true });
-      });
+      const { connectKernelRuntime } = await import("./widgetRuntime");
+      const runtime = await connectKernelRuntime(model, this.sessionId);
+      this.runtime = runtime;
+      runtime.kernel.connectionStatusChanged.connect(this.handleConnectionStatus);
+      runtime.kernel.statusChanged.connect(this.handleKernelStatus);
+      this.setState("idle");
     } catch (error) {
-      const kernelId = this.kernelId;
-      const socket = this.socket;
+      const kernelId = model?.id ?? this.kernelId;
+      this.runtime = null;
       this.kernelId = null;
-      this.socket = null;
-      if (socket) {
-        socket.onclose = null;
-        socket.onerror = null;
-        socket.onmessage = null;
-        socket.close();
-      }
       if (kernelId) {
         try {
           await requestJson<unknown>(jupyterUrl(`kernels/${kernelId}`), { method: "DELETE" });
@@ -119,43 +98,43 @@ export class KernelClient {
     code: string,
     onUpdate?: (result: ExecutionResult) => void,
   ): Promise<ExecutionResult> {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+    const runtime = this.runtime;
+    if (!runtime || runtime.kernel.isDisposed || runtime.kernel.connectionStatus === "disconnected") {
       throw new Error("Kernel is not connected");
     }
-    const msgId = crypto.randomUUID();
-    const message: JupyterMessage = {
-      channel: "shell",
-      header: {
-        msg_id: msgId,
-        msg_type: "execute_request",
-        session: this.sessionId,
-        username: "zbook",
-        date: new Date().toISOString(),
-        version: "5.4",
-      },
-      parent_header: {},
-      metadata: {},
-      content: {
-        code,
-        silent: false,
-        store_history: true,
-        user_expressions: {},
-        allow_stdin: false,
-        stop_on_error: true,
-      },
-      buffers: [],
+    const pending: PendingExecution = {
+      outputs: [],
+      executionCount: null,
+      clearOnNextOutput: false,
+      displayIds: new Map(),
+      onUpdate,
     };
     this.setState("busy");
-    return new Promise<ExecutionResult>((resolve, reject) => {
-      this.pending.set(msgId, {
-        outputs: [],
-        executionCount: null,
-        resolve,
-        reject,
-        onUpdate,
-      });
-      this.socket?.send(JSON.stringify(message));
+    const future = runtime.kernel.requestExecute({
+      code,
+      silent: false,
+      store_history: true,
+      user_expressions: {},
+      allow_stdin: false,
+      stop_on_error: true,
     });
+    future.onIOPub = (message) => this.handleExecutionMessage(message, pending);
+    try {
+      await future.done;
+      if (this.runtime === runtime) this.setState("idle");
+      return this.snapshot(pending);
+    } catch (error) {
+      if (this.runtime === runtime && this.state !== "dead") this.setState("error");
+      throw error;
+    }
+  }
+
+  async renderWidget(modelId: string, element: HTMLElement): Promise<() => void> {
+    const runtime = this.runtime;
+    if (!runtime || runtime.kernel.isDisposed) {
+      throw new Error("Run the cell to connect this widget to a live kernel.");
+    }
+    return runtime.widgets.render(modelId, element);
   }
 
   async interrupt(): Promise<void> {
@@ -167,27 +146,41 @@ export class KernelClient {
   }
 
   async shutdown(): Promise<void> {
-    const kernelId = this.kernelId;
-    this.kernelId = null;
-    const socket = this.socket;
-    this.socket = null;
-    if (socket) {
-      socket.onclose = null;
-      socket.onerror = null;
-      socket.onmessage = null;
-      socket.close();
+    const starting = this.startPromise;
+    if (starting) {
+      try {
+        await starting;
+      } catch {
+        // A failed start has already cleaned up its partial kernel.
+      }
     }
-    const error = new Error("Kernel was shut down");
-    for (const pending of this.pending.values()) pending.reject(error);
-    this.pending.clear();
-    if (kernelId) {
+    await this.disposeRuntime(true);
+    this.setState("disconnected");
+  }
+
+  private async disposeRuntime(deleteKernel: boolean): Promise<void> {
+    const kernelId = this.kernelId;
+    const runtime = this.runtime;
+    this.kernelId = null;
+    this.runtime = null;
+    if (runtime) {
+      runtime.kernel.connectionStatusChanged.disconnect(this.handleConnectionStatus);
+      runtime.kernel.statusChanged.disconnect(this.handleKernelStatus);
+      try {
+        await runtime.widgets.dispose();
+      } catch {
+        // A dead connection can make widget cleanup fail; disposing locally is sufficient.
+      } finally {
+        runtime.kernel.dispose();
+      }
+    }
+    if (deleteKernel && kernelId) {
       try {
         await requestJson<unknown>(jupyterUrl(`kernels/${kernelId}`), { method: "DELETE" });
       } catch {
         // The kernel may already have stopped; local state is still safely cleared.
       }
     }
-    this.setState("disconnected");
   }
 
   private snapshot(pending: PendingExecution): ExecutionResult {
@@ -201,20 +194,33 @@ export class KernelClient {
     pending.onUpdate?.(this.snapshot(pending));
   }
 
-  private handleMessage(data: string | ArrayBuffer | Blob) {
-    if (typeof data !== "string") return;
-    let message: JupyterMessage;
-    try {
-      message = JSON.parse(data) as JupyterMessage;
-    } catch {
-      return;
-    }
-    const parentId = message.parent_header?.msg_id;
-    if (!parentId) return;
-    const pending = this.pending.get(parentId);
-    if (!pending) return;
+  private prepareForOutput(pending: PendingExecution) {
+    if (!pending.clearOnNextOutput) return;
+    pending.outputs = [];
+    pending.displayIds.clear();
+    pending.clearOnNextOutput = false;
+  }
 
-    const content = message.content;
+  private rememberDisplayId(
+    pending: PendingExecution,
+    content: Record<string, any>,
+    outputIndex: number,
+  ) {
+    const transient = content.transient;
+    const displayId = transient && typeof transient === "object"
+      ? (transient as Record<string, unknown>).display_id
+      : null;
+    if (typeof displayId !== "string") return;
+    const indices = pending.displayIds.get(displayId) ?? [];
+    indices.push(outputIndex);
+    pending.displayIds.set(displayId, indices);
+  }
+
+  private handleExecutionMessage(
+    message: KernelMessage.IIOPubMessage,
+    pending: PendingExecution,
+  ) {
+    const content = message.content as Record<string, any>;
     switch (message.header.msg_type) {
       case "execute_input":
         pending.executionCount = typeof content.execution_count === "number"
@@ -223,6 +229,7 @@ export class KernelClient {
         this.emit(pending);
         break;
       case "stream":
+        this.prepareForOutput(pending);
         pending.outputs.push({
           output_type: "stream",
           name: content.name === "stderr" ? "stderr" : "stdout",
@@ -231,18 +238,40 @@ export class KernelClient {
         this.emit(pending);
         break;
       case "execute_result":
-      case "display_data":
-        pending.outputs.push(richOutputFromKernel(
+      case "display_data": {
+        this.prepareForOutput(pending);
+        const output = richOutputFromKernel(
           message.header.msg_type,
           (content.data ?? {}) as Record<string, unknown>,
           (content.metadata ?? {}) as Record<string, unknown>,
           typeof content.execution_count === "number"
             ? content.execution_count
             : pending.executionCount,
-        ));
+        );
+        const outputIndex = pending.outputs.push(output) - 1;
+        this.rememberDisplayId(pending, content, outputIndex);
         this.emit(pending);
         break;
+      }
+      case "update_display_data": {
+        const transient = content.transient;
+        const displayId = transient && typeof transient === "object"
+          ? (transient as Record<string, unknown>).display_id
+          : null;
+        const indices = typeof displayId === "string" ? pending.displayIds.get(displayId) : null;
+        if (!indices?.length) break;
+        const output = richOutputFromKernel(
+          "display_data",
+          (content.data ?? {}) as Record<string, unknown>,
+          (content.metadata ?? {}) as Record<string, unknown>,
+          pending.executionCount,
+        );
+        for (const index of indices) pending.outputs[index] = output;
+        this.emit(pending);
+        break;
+      }
       case "error":
+        this.prepareForOutput(pending);
         pending.outputs.push({
           output_type: "error",
           ename: typeof content.ename === "string" ? content.ename : "Error",
@@ -252,26 +281,37 @@ export class KernelClient {
         this.emit(pending);
         break;
       case "clear_output":
-        pending.outputs = [];
-        this.emit(pending);
+        if (content.wait === true) {
+          pending.clearOnNextOutput = true;
+        } else {
+          pending.outputs = [];
+          pending.displayIds.clear();
+          this.emit(pending);
+        }
         break;
       case "status":
-        if (content.execution_state === "idle") {
-          this.pending.delete(parentId);
-          this.setState("idle");
-          pending.resolve(this.snapshot(pending));
-        } else if (content.execution_state === "busy") {
-          this.setState("busy");
-        }
+        if (content.execution_state === "busy") this.setState("busy");
         break;
     }
   }
 
-  private handleClose(error: Error) {
-    for (const pending of this.pending.values()) pending.reject(error);
-    this.pending.clear();
-    this.socket = null;
-    this.kernelId = null;
-    this.setState("dead");
-  }
+  private readonly handleConnectionStatus = (
+    kernel: Kernel.IKernelConnection,
+    status: Kernel.ConnectionStatus,
+  ) => {
+    if (this.runtime?.kernel !== kernel) return;
+    if (status === "disconnected") {
+      this.setState("dead");
+    } else if (status === "connected" && this.state === "starting") {
+      this.setState("idle");
+    }
+  };
+
+  private readonly handleKernelStatus = (
+    kernel: Kernel.IKernelConnection,
+    status: KernelMessage.Status,
+  ) => {
+    if (this.runtime?.kernel !== kernel) return;
+    if (status === "dead") this.setState("dead");
+  };
 }

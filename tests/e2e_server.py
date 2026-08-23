@@ -76,6 +76,57 @@ def seed_workspace(workspace: Path) -> None:
         ),
         "conflict.ipynb": notebook(("conflict-cell", "code", "original_value = 1")),
         "image.ipynb": image_output,
+        "widgets.ipynb": notebook(
+            (
+                "widget-cell",
+                "code",
+                "import ipywidgets as widgets\n"
+                "slider = widgets.IntSlider(value=4, min=0, max=10, description='Live')\n"
+                "slider",
+            ),
+            ("widget-value", "code", "slider.value"),
+        ),
+        "matplotlib-widget.ipynb": notebook(
+            (
+                "matplotlib-widget-cell",
+                "code",
+                "%matplotlib widget\n"
+                "import numpy as np\n"
+                "import matplotlib.pyplot as plt\n"
+                "from matplotlib.widgets import Slider\n"
+                "\n"
+                "run_ids = ['run-0', 'run-1', 'run-2', 'run-3']\n"
+                "x = np.linspace(0, 2 * np.pi, 300)\n"
+                "fig, lines_ax = plt.subplots(figsize=(6, 4))\n"
+                "fig.subplots_adjust(bottom=0.24)\n"
+                "line, = lines_ax.plot(x, np.sin(x))\n"
+                "slider_ax = fig.add_axes([0.18, 0.08, 0.68, 0.04])\n"
+                "seed_slider = Slider(\n"
+                "    slider_ax, 'seed/run', 0, len(run_ids) - 1,\n"
+                "    valinit=0, valstep=1, valfmt='%0.0f'\n"
+                ")\n"
+                "\n"
+                "def update(value):\n"
+                "    selected_index = int(value)\n"
+                "    selected_run_id = run_ids[selected_index]\n"
+                "    line.set_ydata(np.sin(x + selected_index * 0.5))\n"
+                "    lines_ax.set_title(\n"
+                "        f'Expert load — {selected_run_id}, block 4'\n"
+                "    )\n"
+                "    lines_ax.relim()\n"
+                "    lines_ax.autoscale_view()\n"
+                "    fig.canvas.draw_idle()\n"
+                "\n"
+                "seed_slider.on_changed(update)\n"
+                "update(seed_slider.val)\n"
+                "plt.show()",
+            ),
+            (
+                "matplotlib-widget-value",
+                "code",
+                "int(seed_slider.val), lines_ax.get_title()",
+            ),
+        ),
     }
     for name, content in fixtures.items():
         (workspace / name).write_text(json.dumps(content), encoding="utf-8")
