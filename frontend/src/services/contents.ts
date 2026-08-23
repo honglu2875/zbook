@@ -1,4 +1,10 @@
 import type { RawNotebook } from "../model/notebook";
+import {
+  contentRevision,
+  NotebookChangedOnDiskError,
+  sameContentRevision,
+  type ContentRevision,
+} from "./contentRevision";
 import { encodeApiPath, jupyterUrl, requestJson } from "./http";
 
 export type ContentType = "directory" | "file" | "notebook";
@@ -12,6 +18,8 @@ export interface ContentEntry {
   last_modified: string;
   mimetype: string | null;
   format: "json" | "text" | "base64" | null;
+  hash?: string | null;
+  hash_algorithm?: string | null;
   content?: ContentEntry[] | RawNotebook | string | null;
 }
 
@@ -40,6 +48,7 @@ export async function readNotebook(path: string): Promise<ContentEntry> {
   const url = contentsUrl(path);
   url.searchParams.set("content", "1");
   url.searchParams.set("type", "notebook");
+  url.searchParams.set("hash", "1");
   // Notebook contents can be changed by Codex or another process.  Both the
   // query nonce and fetch policy are intentional: intermediary caches should
   // never turn Reload into a no-op.
@@ -49,6 +58,16 @@ export async function readNotebook(path: string): Promise<ContentEntry> {
     throw new Error(`${path} is not a notebook`);
   }
   return model;
+}
+
+export async function readNotebookRevision(path: string): Promise<ContentRevision> {
+  const url = contentsUrl(path);
+  url.searchParams.set("content", "0");
+  url.searchParams.set("type", "notebook");
+  url.searchParams.set("hash", "1");
+  url.searchParams.set("_refresh", String(Date.now()));
+  const model = await requestJson<ContentEntry>(url, { cache: "no-store" });
+  return contentRevision(model);
 }
 
 export async function createNotebook(parent = ""): Promise<ContentEntry> {
@@ -101,11 +120,28 @@ export async function uploadFile(parent: string, file: File): Promise<ContentEnt
   });
 }
 
-export async function saveNotebook(path: string, content: RawNotebook): Promise<ContentEntry> {
-  return requestJson<ContentEntry>(contentsUrl(path), {
+export async function saveNotebook(
+  path: string,
+  content: RawNotebook,
+  expectedRevision?: ContentRevision,
+): Promise<ContentEntry> {
+  if (expectedRevision) {
+    const actualRevision = await readNotebookRevision(path);
+    if (!sameContentRevision(expectedRevision, actualRevision)) {
+      throw new NotebookChangedOnDiskError(expectedRevision, actualRevision);
+    }
+  }
+  const saved = await requestJson<ContentEntry>(contentsUrl(path), {
     method: "PUT",
     body: JSON.stringify({ type: "notebook", format: "json", content }),
   });
+  const revision = await readNotebookRevision(path);
+  return {
+    ...saved,
+    hash: revision.hash,
+    hash_algorithm: revision.hashAlgorithm,
+    last_modified: revision.lastModified,
+  };
 }
 
 export async function renameEntry(path: string, newPath: string): Promise<ContentEntry> {

@@ -19,7 +19,7 @@ import {
   TrashIcon,
 } from "./icons";
 
-export type SaveState = "saved" | "dirty" | "saving" | "error";
+export type SaveState = "saved" | "dirty" | "saving" | "error" | "conflict";
 export interface CellViewState {
   outputLimited?: boolean;
   cellCollapsed?: boolean;
@@ -217,6 +217,7 @@ export function Notebook({
     dirty: "Unsaved changes",
     saving: "Saving…",
     error: "Save failed",
+    conflict: "Changed on disk",
   }[saveState];
   const proposals = Object.values(cellProposals);
   const reviewableProposals = proposals.filter((proposal) => proposal.state !== "streaming");
@@ -229,7 +230,7 @@ export function Notebook({
           <div className="notebook-title"><h1>{title}</h1><span>.ipynb</span></div>
           <div className="notebook-document-actions">
             <span className={`save-state save-${saveState}`}>{saveLabel}</span>
-            <button onClick={onSave} disabled={saveState === "saving" || locked} title="Save notebook (Ctrl/Cmd-S)"><SaveIcon />Save</button>
+            <button onClick={onSave} disabled={saveState === "saving" || locked} title={saveState === "conflict" ? "Resolve external changes" : "Save notebook (Ctrl/Cmd-S)"}><SaveIcon />{saveState === "conflict" ? "Resolve" : "Save"}</button>
             <button onClick={onReload} disabled={saveState === "saving" || locked || lockedCellIds.length > 0} title="Reload notebook from disk"><RefreshIcon />Reload</button>
             <button onClick={onExport} title="Export .ipynb"><DownloadIcon />Export</button>
           </div>

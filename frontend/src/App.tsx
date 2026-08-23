@@ -69,6 +69,19 @@ import {
   uploadFile,
   type ContentEntry,
 } from "./services/contents";
+import {
+  contentRevision,
+  NotebookChangedOnDiskError,
+  sameContentRevision,
+  type ContentRevision,
+} from "./services/contentRevision";
+import {
+  loadDocumentRecovery,
+  remapDocumentRecoveriesUnder,
+  removeDocumentRecoveriesUnder,
+  removeDocumentRecovery,
+  storeDocumentRecovery,
+} from "./services/documentRecovery";
 import { appUrl, requestJson } from "./services/http";
 import { selectEnvironment } from "./services/environment";
 import {
@@ -325,6 +338,10 @@ function cloneDocumentValue<T>(value: T): T {
   return structuredClone(value);
 }
 
+function sameNotebookContent(left: RawNotebook, right: RawNotebook): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export default function App() {
   const [cells, setCells] = useState<NotebookCell[]>([]);
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
@@ -375,6 +392,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const revision = useRef(0);
   const savedRevision = useRef(0);
+  const serverRevision = useRef<ContentRevision | null>(null);
   const savePromise = useRef<Promise<boolean> | null>(null);
   const notebookToolLockedRef = useRef(false);
   const codexTurnActiveRef = useRef(false);
@@ -522,6 +540,29 @@ export default function App() {
   }, [cells, metadata, notebookPath, saveState]);
 
   useEffect(() => {
+    const workspace = status?.config.workspace;
+    if (!workspace || !notebookPath || saveState === "saved") return;
+    const snapshot = notebookFromCells(cells, metadata);
+    const baseRevision = serverRevision.current;
+    const timer = window.setTimeout(() => {
+      void storeDocumentRecovery(workspace, notebookPath, snapshot, baseRevision).catch(() => {
+        // Recovery is best-effort when browser storage is unavailable or full.
+      });
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [cells, metadata, notebookPath, saveState, status?.config.workspace]);
+
+  useEffect(() => {
+    if (saveState === "saved") return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [saveState]);
+
+  useEffect(() => {
     function handleGlobalKeys(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
@@ -530,7 +571,7 @@ export default function App() {
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        void persistNotebook();
+        void saveFromUser();
         return;
       }
       const navigableCells = cellsWithInsertionProposals(
@@ -728,7 +769,7 @@ export default function App() {
 
   function markDirty() {
     revision.current += 1;
-    setSaveState("dirty");
+    setSaveState((current) => current === "conflict" ? "conflict" : "dirty");
   }
 
   async function refreshStatus() {
@@ -1052,7 +1093,39 @@ export default function App() {
     replaceCodexCellLocks(next);
   }
 
-  async function persistNotebook(): Promise<boolean> {
+  async function writeNotebook(
+    path: string,
+    content: RawNotebook,
+    force = false,
+  ): Promise<void> {
+    const saved = await saveNotebook(
+      path,
+      content,
+      force ? undefined : serverRevision.current ?? undefined,
+    );
+    serverRevision.current = contentRevision(saved);
+    const workspace = status?.config.workspace ?? restoredWorkspace.current;
+    if (workspace) {
+      void removeDocumentRecovery(workspace, path).catch(() => {
+        // A stale recovery equal to the saved document is harmless and cleaned on next load.
+      });
+    }
+  }
+
+  function reportSaveFailure(error: unknown, prefix = "Save failed") {
+    if (error instanceof NotebookChangedOnDiskError) {
+      setSaveState("conflict");
+      setNotice(
+        "This notebook changed on disk. Reload to use the disk version, export a copy, "
+        + "or choose Save again to overwrite it with Zbook's version.",
+      );
+      return;
+    }
+    setSaveState("error");
+    setNotice(`${prefix}: ${String(error)}`);
+  }
+
+  async function persistNotebook(force = false): Promise<boolean> {
     if (notebookToolLockedRef.current) return false;
     if (savePromise.current) return savePromise.current;
     const current = documentRef.current;
@@ -1061,16 +1134,16 @@ export default function App() {
     setSaveState("saving");
     const task = (async () => {
       try {
-        await saveNotebook(
+        await writeNotebook(
           current.notebookPath!,
           notebookFromCells(current.cells, current.metadata),
+          force,
         );
         savedRevision.current = Math.max(savedRevision.current, savingRevision);
         setSaveState(revision.current === savingRevision ? "saved" : "dirty");
         return true;
       } catch (error) {
-        setSaveState("error");
-        setNotice(`Save failed: ${String(error)}`);
+        reportSaveFailure(error);
         return false;
       }
     })();
@@ -1092,11 +1165,26 @@ export default function App() {
         continue;
       }
       const current = documentRef.current;
+      if (current.saveState === "conflict") {
+        setNotice("Resolve the external notebook change before switching away.");
+        return false;
+      }
       if (current.saveState === "saved" && savedRevision.current >= revision.current) return true;
       if (!(await persistNotebook())) return false;
       if (savedRevision.current >= revision.current) return true;
     }
     return true;
+  }
+
+  async function saveFromUser() {
+    if (documentRef.current.saveState !== "conflict") {
+      await persistNotebook();
+      return;
+    }
+    if (!window.confirm(
+      "This notebook changed on disk after Zbook opened it. Overwrite the disk version with the current Zbook document?",
+    )) return;
+    await persistNotebook(true);
   }
 
   async function reloadNotebook(fromExternalChange = false) {
@@ -1117,6 +1205,7 @@ export default function App() {
     try {
       const model = await readNotebook(path);
       const notebook = model.content as RawNotebook;
+      serverRevision.current = contentRevision(model);
       const loadedCells = cellsFromNotebook(notebook);
       reconcileNotebookProposals(path, loadedCells);
       revision.current += 1;
@@ -1128,6 +1217,8 @@ export default function App() {
       setMode("NAV");
       setSaveState(notebook.cells.length === 0 ? "dirty" : "saved");
       setCodexEditReview(null);
+      const workspace = status?.config.workspace ?? restoredWorkspace.current;
+      if (workspace) void removeDocumentRecovery(workspace, path).catch(() => undefined);
       setNotice(fromExternalChange ? "Reloaded workspace changes from Codex." : "Reloaded from disk.");
     } catch (error) {
       setNotice(`Could not reload ${path}: ${String(error)}`);
@@ -1676,7 +1767,7 @@ export default function App() {
         return { success: false, result: { error: "Could not finish saving the current notebook." } };
       }
       setSaveState("saving");
-      await saveNotebook(
+      await writeNotebook(
         current.notebookPath,
         notebookFromCells(applied.cells, current.metadata),
       );
@@ -1720,8 +1811,7 @@ export default function App() {
         },
       };
     } catch (error) {
-      setSaveState(current.saveState);
-      setNotice(`Codex notebook edit could not be saved: ${String(error)}`);
+      reportSaveFailure(error, "Codex notebook edit could not be saved");
       return { success: false, result: { error: "save_failed", message: String(error) } };
     } finally {
       notebookToolLockedRef.current = false;
@@ -1742,6 +1832,7 @@ export default function App() {
     setMode("NAV");
     setSaveState("saved");
     setCodexEditReview(null);
+    serverRevision.current = null;
     revision.current += 1;
     savedRevision.current = revision.current;
   }
@@ -1765,11 +1856,42 @@ export default function App() {
     setBusy(true);
     try {
       const model = await readNotebook(path);
-      const notebook = model.content as RawNotebook;
+      const diskNotebook = model.content as RawNotebook;
+      const diskRevision = contentRevision(model);
+      let notebook = diskNotebook;
+      let recoveryState: "dirty" | "conflict" | null = null;
+      const workspace = status?.config.workspace ?? restoredWorkspace.current;
+      if (workspace) {
+        try {
+          const recovery = await loadDocumentRecovery(workspace, path);
+          if (recovery) {
+            if (sameNotebookContent(recovery.content, diskNotebook)) {
+              await removeDocumentRecovery(workspace, path);
+            } else {
+              const basedOnCurrentDisk = Boolean(
+                recovery.baseRevision
+                && sameContentRevision(recovery.baseRevision, diskRevision),
+              );
+              const restore = window.confirm(basedOnCurrentDisk
+                ? `Zbook recovered unsaved changes for ${basename(path)}. Restore them?`
+                : `Zbook recovered unsaved changes for ${basename(path)}, but the notebook also changed on disk. Restore the recovery for review?`);
+              if (restore) {
+                notebook = recovery.content;
+                recoveryState = basedOnCurrentDisk ? "dirty" : "conflict";
+              } else {
+                await removeDocumentRecovery(workspace, path);
+              }
+            }
+          }
+        } catch {
+          // Opening the disk document remains reliable if recovery storage is unavailable.
+        }
+      }
       const loadedCells = cellsFromNotebook(notebook);
       reconcileNotebookProposals(path, loadedCells);
       revision.current += 1;
-      savedRevision.current = revision.current;
+      savedRevision.current = recoveryState ? revision.current - 1 : revision.current;
+      serverRevision.current = diskRevision;
       setNotebookPath(path);
       setTreeDirectory(parentPath(path));
       setCells(loadedCells);
@@ -1783,9 +1905,14 @@ export default function App() {
       setSelectedId(restoredSelection);
       setEditingId(null);
       setMode("NAV");
-      setSaveState(notebook.cells.length === 0 ? "dirty" : "saved");
+      setSaveState(recoveryState ?? (notebook.cells.length === 0 ? "dirty" : "saved"));
       setCodexEditReview(null);
       if (rememberTab) rememberOpenTab(path);
+      if (recoveryState) {
+        setNotice(recoveryState === "conflict"
+          ? "Recovered unsaved changes for review; the disk version changed separately."
+          : "Recovered unsaved notebook changes from browser storage.");
+      }
       return true;
     } catch (error) {
       setNotice(`Could not open ${path}: ${String(error)}`);
@@ -1911,6 +2038,10 @@ export default function App() {
       await renameEntry(entryPath, newPath);
       kernelPool.remapUnder(entryPath, newPath);
       remapCellProposals(entryPath, newPath);
+      const workspace = status?.config.workspace ?? restoredWorkspace.current;
+      if (workspace) {
+        void remapDocumentRecoveriesUnder(workspace, entryPath, newPath).catch(() => undefined);
+      }
       if (activePath && containsActive) {
         const nextActivePath = `${newPath}${activePath.slice(entryPath.length)}`;
         documentRef.current = { ...documentRef.current, notebookPath: nextActivePath };
@@ -2006,6 +2137,10 @@ export default function App() {
       if (containsActive && !(await ensureDocumentSaved())) return;
       await kernelPool.shutdownUnder(entry.path);
       await deleteEntry(entry.path);
+      const workspace = status?.config.workspace ?? restoredWorkspace.current;
+      if (workspace) {
+        void removeDocumentRecoveriesUnder(workspace, entry.path).catch(() => undefined);
+      }
       removeCellProposalsUnder(entry.path);
       selectedByNotebook.current = Object.fromEntries(
         Object.entries(selectedByNotebook.current)
@@ -2294,7 +2429,7 @@ export default function App() {
         return;
       }
       setSaveState("saving");
-      await saveNotebook(path, notebookFromCells(nextCells, latest.metadata));
+      await writeNotebook(path, notebookFromCells(nextCells, latest.metadata));
       const nextRevision = revision.current + 1;
       revision.current = nextRevision;
       savedRevision.current = nextRevision;
@@ -2314,8 +2449,7 @@ export default function App() {
         ? `Applied the proposed ${proposal.proposalKind === "insert" ? "new cell" : "edit"}; running it…`
         : `Applied and saved the proposed ${proposal.proposalKind === "insert" ? "new cell" : "cell edit"}.`);
     } catch (error) {
-      setSaveState("error");
-      setNotice(`Could not apply the Codex proposal: ${String(error)}`);
+      reportSaveFailure(error, "Could not apply the Codex proposal");
     } finally {
       notebookToolLockedRef.current = false;
       setNotebookToolLocked(false);
@@ -2377,7 +2511,7 @@ export default function App() {
     try {
       const restoredCells = cloneDocumentValue(review.beforeCells);
       const restoredMetadata = cloneDocumentValue(review.beforeMetadata);
-      await saveNotebook(review.notebookPath, notebookFromCells(restoredCells, restoredMetadata));
+      await writeNotebook(review.notebookPath, notebookFromCells(restoredCells, restoredMetadata));
       const nextRevision = revision.current + 1;
       revision.current = nextRevision;
       savedRevision.current = nextRevision;
@@ -2397,8 +2531,7 @@ export default function App() {
       setCodexEditReview(null);
       setNotice("Undid the latest Codex notebook change.");
     } catch (error) {
-      setSaveState("error");
-      setNotice(`Could not undo the Codex change: ${String(error)}`);
+      reportSaveFailure(error, "Could not undo the Codex change");
     } finally {
       notebookToolLockedRef.current = false;
       setNotebookToolLocked(false);
@@ -2638,7 +2771,7 @@ export default function App() {
       detail: notebookPath ?? "No notebook open",
       shortcut: "⌘S",
       disabled: !notebookPath || saveState === "saving",
-      run: () => void persistNotebook(),
+      run: () => void saveFromUser(),
     },
     {
       id: "notebook.runAll",
@@ -2879,7 +3012,7 @@ export default function App() {
             onReviewCodexChange={reviewCodexEdit}
             onUndoCodexChange={() => void undoCodexEdit()}
             onToggleCellView={toggleCellView}
-            onSave={() => void persistNotebook()}
+            onSave={() => void saveFromUser()}
             onExport={exportNotebook}
             onReload={() => void reloadNotebook()}
             onModeChange={setMode}

@@ -6,7 +6,7 @@ import type {
   CellProposalState,
 } from "../model/cellProposals";
 import type { NotebookCell } from "../model/notebook";
-import { Notebook } from "./Notebook";
+import { Notebook, type SaveState } from "./Notebook";
 
 const cell: NotebookCell = {
   id: "cell-1",
@@ -45,6 +45,7 @@ function proposal(state: CellProposalState, proposalKind: CellProposalKind = "so
 function renderProposal(
   state: CellProposalState,
   proposalKind: CellProposalKind = "source",
+  saveState: SaveState = "saved",
 ): string {
   const noop = () => undefined;
   const visibleCell = proposalKind === "insert" ? { ...cell, source: "" } : cell;
@@ -55,7 +56,7 @@ function renderProposal(
       selectedId={cell.id}
       editingId={null}
       vimEnabled={false}
-      saveState="saved"
+      saveState={saveState}
       canRun
       locked={false}
       lockedCellIds={state === "streaming" ? [cell.id] : []}
@@ -118,5 +119,13 @@ describe("Notebook proposal review", () => {
     expect(markup).toContain(">Apply<");
     expect(markup).toContain("Apply &amp; Run");
     expect(markup).toContain(">Reject<");
+  });
+
+  it("turns a disk conflict into an explicit resolve action", () => {
+    const markup = renderProposal("review", "source", "conflict");
+
+    expect(markup).toContain("Changed on disk");
+    expect(markup).toContain(">Resolve<");
+    expect(markup).toContain("Resolve external changes");
   });
 });

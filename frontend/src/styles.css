@@ -331,6 +331,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .save-state { color: #5f666c; font-size: 10px; }
 .save-state.save-dirty { color: #9d855f; }
 .save-state.save-error { color: var(--red); }
+.save-state.save-conflict { color: #d18d72; }
 .notebook-document-actions { display: flex; align-items: center; gap: 5px; }
 .notebook-document-actions .save-state { margin-right: 5px; }
 .notebook-document-actions button { display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 7px; border: 1px solid #303438; border-radius: 4px; background: #1d2022; color: #797f85; font-size: 9.5px; cursor: pointer; }
