@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { CellProposal, CellProposalState } from "../model/cellProposals";
+import type {
+  CellProposal,
+  CellProposalKind,
+  CellProposalState,
+} from "../model/cellProposals";
 import type { NotebookCell } from "../model/notebook";
 import { Notebook } from "./Notebook";
 
@@ -18,27 +22,36 @@ const cell: NotebookCell = {
   }],
 };
 
-function proposal(state: CellProposalState): CellProposal {
+function proposal(state: CellProposalState, proposalKind: CellProposalKind = "source"): CellProposal {
   return {
     notebookPath: "analysis.ipynb",
     cellId: cell.id,
-    baseSource: cell.source,
+    proposalKind,
+    cellKind: "code",
+    afterCellId: proposalKind === "insert" ? "anchor-cell" : null,
+    beforeCellId: null,
+    baseSource: proposalKind === "insert" ? "" : cell.source,
     draftSource: "answer = 42",
     baseDocumentRevision: 3,
     proposalRevision: 1,
     ownerThreadId: "thread-1",
     ownerTurnId: "turn-1",
     state,
+    createdAt: 1,
     updatedAt: 1,
   };
 }
 
-function renderProposal(state: CellProposalState): string {
+function renderProposal(
+  state: CellProposalState,
+  proposalKind: CellProposalKind = "source",
+): string {
   const noop = () => undefined;
+  const visibleCell = proposalKind === "insert" ? { ...cell, source: "" } : cell;
   return renderToStaticMarkup(
     <Notebook
       path="analysis.ipynb"
-      cells={[cell]}
+      cells={[visibleCell]}
       selectedId={cell.id}
       editingId={null}
       vimEnabled={false}
@@ -47,7 +60,7 @@ function renderProposal(state: CellProposalState): string {
       locked={false}
       lockedCellIds={state === "streaming" ? [cell.id] : []}
       proposalActionsDisabled={state === "streaming"}
-      cellProposals={{ [cell.id]: proposal(state) }}
+      cellProposals={{ [cell.id]: proposal(state, proposalKind) }}
       codexChangedCellIds={[]}
       codexUndoAvailable={false}
       cellViews={{}}
@@ -83,7 +96,7 @@ describe("Notebook proposal review", () => {
 
   it("shows review actions and marks accepted output as stale after the turn", () => {
     const markup = renderProposal("review");
-    expect(markup).toContain("proposed cell edit");
+    expect(markup).toContain("proposed cell change");
     expect(markup).toContain(">Apply<");
     expect(markup).toContain("Apply &amp; Run");
     expect(markup).toContain(">Reject<");
@@ -95,5 +108,14 @@ describe("Notebook proposal review", () => {
     expect(markup).toContain("Accepted source changed");
     expect(markup).toMatch(/class="proposal-apply" disabled=""/);
     expect(markup).toMatch(/class="proposal-reject"/);
+  });
+
+  it("renders a proposed insertion with the same review controls", () => {
+    const markup = renderProposal("review", "insert");
+    expect(markup).toContain("is-proposal-insert");
+    expect(markup).toContain("Review this proposed new code cell");
+    expect(markup).toContain(">Apply<");
+    expect(markup).toContain("Apply &amp; Run");
+    expect(markup).toContain(">Reject<");
   });
 });

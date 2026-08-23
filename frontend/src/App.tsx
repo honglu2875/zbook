@@ -27,6 +27,10 @@ import {
 } from "./model/notebook";
 import {
   applyProposalOperation,
+  applyReviewedCellProposal,
+  cellFromInsertionProposal,
+  cellsWithInsertionProposals,
+  createInsertionProposal,
   proposalForRead,
   reconcileCellProposal,
   ProposalInputError,
@@ -39,6 +43,7 @@ import {
   NOTEBOOK_PROPOSE_TOOL,
   NOTEBOOK_READ_TOOL,
   NotebookToolInputError,
+  numberedSourceLines,
   parseNotebookToolArguments,
   type NotebookToolContext,
   type NotebookToolResponse,
@@ -153,12 +158,17 @@ const NOTEBOOK_AVAILABLE_ACTIONS = [
     tool: NOTEBOOK_PROPOSE_TOOL,
     note: "One coherent source hunk per call; the user reviews proposals before saving.",
   },
+  {
+    action: "insert_cell",
+    tool: NOTEBOOK_PROPOSE_TOOL,
+    note: "Creates a reviewable unsaved cell; lock afterCellId first when it is not null.",
+  },
   { action: "replace_proposal", tool: NOTEBOOK_PROPOSE_TOOL },
   { action: "discard_proposal", tool: NOTEBOOK_PROPOSE_TOOL },
   {
     capability: "structural_operations",
     tool: NOTEBOOK_APPLY_TOOL,
-    operations: ["set_kind", "insert_after", "delete", "move_after", "swap"],
+    operations: ["set_kind", "delete", "move_after", "swap"],
   },
 ] as const;
 
@@ -172,6 +182,11 @@ function cellIds(cells: NotebookCell[]): string[] {
 
 function sameCellIds(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function proposalComesBefore(left: CellProposal, right: CellProposal): boolean {
+  return left.createdAt < right.createdAt
+    || (left.createdAt === right.createdAt && left.cellId.localeCompare(right.cellId) < 0);
 }
 
 function storedPaneWidth(key: string, fallback: number, minimum: number, maximum: number): number {
@@ -499,11 +514,15 @@ export default function App() {
         void persistNotebook();
         return;
       }
-      if (mode !== "NAV" || cells.length === 0) return;
+      const navigableCells = cellsWithInsertionProposals(
+        cells,
+        notebookPath ? cellProposalsRef.current[notebookPath] ?? {} : {},
+      );
+      if (mode !== "NAV" || navigableCells.length === 0) return;
       const target = event.target as HTMLElement;
       if (target.closest("textarea, input, select, .cm-editor")) return;
       const currentId = selectedIdRef.current;
-      const index = Math.max(0, cells.findIndex((cell) => cell.id === currentId));
+      const index = Math.max(0, navigableCells.findIndex((cell) => cell.id === currentId));
       const plainDeleteKey = !event.metaKey
         && !event.ctrlKey
         && !event.altKey
@@ -527,10 +546,10 @@ export default function App() {
         if (!event.repeat) handleCellDeleteKey(currentId);
       } else if (event.key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
-        enterCellNavigation(cells[Math.min(index + 1, cells.length - 1)].id);
+        enterCellNavigation(navigableCells[Math.min(index + 1, navigableCells.length - 1)].id);
       } else if (event.key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
-        enterCellNavigation(cells[Math.max(index - 1, 0)].id);
+        enterCellNavigation(navigableCells[Math.max(index - 1, 0)].id);
       } else if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key === "Enter") {
         event.preventDefault();
         void runCell(currentId, false, false);
@@ -574,7 +593,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleGlobalKeys);
     return () => window.removeEventListener("keydown", handleGlobalKeys);
-  }, [cells, mode, vimEnabled]);
+  }, [cellProposalsByNotebook, cells, mode, notebookPath, vimEnabled]);
 
   useEffect(() => {
     if (!notice) return;
@@ -927,11 +946,10 @@ export default function App() {
   function reconcileNotebookProposals(path: string, loadedCells: NotebookCell[]) {
     const stored = cellProposalsRef.current[path];
     if (!stored) return;
-    const cellsById = new Map(loadedCells.map((cell) => [cell.id, cell]));
     const reconciled: Record<string, CellProposal> = {};
     let changed = false;
     for (const [id, proposal] of Object.entries(stored)) {
-      const nextProposal = reconcileCellProposal(proposal, cellsById.get(id));
+      const nextProposal = reconcileCellProposal(proposal, loadedCells);
       if (!nextProposal) {
         persistProposalChange(path, id, null);
         changed = true;
@@ -1130,6 +1148,8 @@ export default function App() {
       }
       const includeSource = args.includeSource !== false;
       const notebookProposals = cellProposalsRef.current[current.notebookPath] ?? {};
+      const acceptedCellsById = new Map(current.cells.map((cell) => [cell.id, cell]));
+      const readableCells = cellsWithInsertionProposals(current.cells, notebookProposals);
       return {
         success: true,
         result: {
@@ -1138,21 +1158,29 @@ export default function App() {
           selectedCellId: selectedId || null,
           saveState: current.saveState,
           sourceIncluded: includeSource,
+          sourceLineNumbering: includeSource ? "one_based" : null,
           lockedCellIds: codexLockedCellIds(current.notebookPath),
           pendingCellIds: Object.keys(notebookProposals),
           availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
-          cells: current.cells.map((cell, index) => {
+          cells: readableCells.map((cell, index) => {
             const proposal = notebookProposals[cell.id];
+            const acceptedCell = acceptedCellsById.get(cell.id);
+            const readableSource = proposal?.draftSource ?? cell.source;
+            const numberedLines = includeSource ? numberedSourceLines(readableSource) : [];
             return {
               index,
               id: cell.id,
               cellType: cell.kind,
               executionCount: cell.executionCount,
-              ...(includeSource ? { source: proposal?.draftSource ?? cell.source } : {}),
+              ...(includeSource ? {
+                source: readableSource,
+                sourceLines: numberedLines,
+                lineCount: numberedLines.length,
+              } : {}),
               ...(proposal ? {
-                pendingChange: proposalForRead(proposal, cell.source, includeSource),
+                pendingChange: proposalForRead(proposal, acceptedCell?.source ?? null, includeSource),
                 ...(proposal.state === "conflict" && includeSource
-                  ? { acceptedSource: cell.source }
+                  ? { acceptedSource: acceptedCell?.source ?? null }
                   : {}),
               } : {}),
             };
@@ -1248,9 +1276,6 @@ export default function App() {
         setEditingId(null);
         setMode("NAV");
       }
-      setNotice(action === "lock"
-        ? `Codex locked ${requestedIds.length} cell${requestedIds.length === 1 ? "" : "s"} for this turn.`
-        : `Codex unlocked ${requestedIds.length} cell${requestedIds.length === 1 ? "" : "s"}.`);
       return {
         success: true,
         result: {
@@ -1266,27 +1291,115 @@ export default function App() {
     }
 
     if (tool === NOTEBOOK_PROPOSE_TOOL) {
+      const owner = { threadId: context.threadId, turnId: context.turnId };
+      const heldLocks = new Set(codexLockedCellIds(current.notebookPath));
+      if (args.action === "insert_cell") {
+        const afterCellId = args.afterCellId;
+        const anchorIndex = afterCellId === null
+          ? -1
+          : current.cells.findIndex((cell) => cell.id === afterCellId);
+        if (afterCellId !== null && (
+          typeof afterCellId !== "string" || anchorIndex < 0
+        )) {
+          return {
+            success: false,
+            result: {
+              error: "cell_not_found",
+              message: "afterCellId must be null or identify one current accepted cell.",
+            },
+          };
+        }
+        if (typeof afterCellId === "string" && !heldLocks.has(afterCellId)) {
+          return {
+            success: false,
+            result: {
+              error: "cells_not_locked",
+              message: "Lock the accepted anchor cell before proposing a cell after it.",
+              missingCellIds: [afterCellId],
+              lockedCellIds: [...heldLocks],
+              nextAction: {
+                tool: NOTEBOOK_LOCK_TOOL,
+                arguments: {
+                  notebookPath: current.notebookPath,
+                  expectedRevision: revision.current,
+                  action: "lock",
+                  cellIds: [afterCellId],
+                },
+              },
+              instruction: "Call nextAction.tool with nextAction.arguments, then retry insert_cell.",
+              availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
+            },
+          };
+        }
+        try {
+          const operation = createInsertionProposal(
+            args,
+            current.notebookPath,
+            revision.current,
+            owner,
+            current.cells[anchorIndex + 1]?.id ?? null,
+          );
+          const proposal = operation.proposal!;
+          updateCellProposal(current.notebookPath, proposal.cellId, proposal);
+          setNotice(`Codex is drafting a reviewable new ${proposal.cellKind} cell.`);
+          return {
+            success: true,
+            result: {
+              notebookPath: current.notebookPath,
+              documentRevision: revision.current,
+              cellId: proposal.cellId,
+              action: operation.action,
+              proposalRevision: proposal.proposalRevision,
+              pendingReview: true,
+              saved: false,
+              pendingChange: proposalForRead(proposal, null),
+              lockedCellIds: codexLockedCellIds(current.notebookPath),
+              availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
+            },
+          };
+        } catch (error) {
+          if (error instanceof ProposalInputError) {
+            return {
+              success: false,
+              result: {
+                error: error.code,
+                message: error.message,
+                ...error.details,
+                availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
+              },
+            };
+          }
+          return { success: false, result: { error: "proposal_failed", message: String(error) } };
+        }
+      }
+
       if (typeof args.cellId !== "string" || args.cellId.length === 0 || args.cellId.length > 200) {
         return {
           success: false,
           result: { error: "invalid_proposal", message: "cellId must identify one current cell." },
         };
       }
-      const cell = current.cells.find((item) => item.id === args.cellId);
-      if (!cell) {
+      const existing = cellProposal(args.cellId, current.notebookPath);
+      const acceptedCell = current.cells.find((item) => item.id === args.cellId);
+      if (!acceptedCell && existing?.proposalKind !== "insert") {
         return {
           success: false,
           result: { error: "cell_not_found", message: `No current cell has id ${args.cellId}.` },
         };
       }
-      const heldLocks = new Set(codexLockedCellIds(current.notebookPath));
-      if (!heldLocks.has(cell.id)) {
+      const cell = acceptedCell ?? cellFromInsertionProposal(existing!);
+      const requiredLockId = existing?.proposalKind === "insert"
+        ? existing.afterCellId
+        : cell.id;
+      if (requiredLockId !== null && !heldLocks.has(requiredLockId)) {
         return {
           success: false,
           result: {
             error: "cells_not_locked",
-            message: "Lock the existing cell before staging or changing its proposal.",
-            missingCellIds: [cell.id],
+            message: existing?.proposalKind === "insert"
+              ? "Lock the accepted anchor cell before changing this proposed insertion."
+              : "Lock the existing cell before staging or changing its proposal.",
+            missingCellIds: [requiredLockId],
             lockedCellIds: [...heldLocks],
             nextAction: {
               tool: NOTEBOOK_LOCK_TOOL,
@@ -1294,7 +1407,7 @@ export default function App() {
                 notebookPath: current.notebookPath,
                 expectedRevision: revision.current,
                 action: "lock",
-                cellIds: [cell.id],
+                cellIds: [requiredLockId],
               },
             },
             instruction: "Call nextAction.tool with nextAction.arguments, then retry the proposal action.",
@@ -1302,7 +1415,6 @@ export default function App() {
           },
         };
       }
-      const existing = cellProposal(cell.id, current.notebookPath);
       try {
         const operation = applyProposalOperation(
           cell,
@@ -1310,7 +1422,7 @@ export default function App() {
           args,
           current.notebookPath,
           revision.current,
-          { threadId: context.threadId, turnId: context.turnId },
+          owner,
         );
         updateCellProposal(current.notebookPath, cell.id, operation.proposal);
         if (editingId === cell.id) {
@@ -1335,7 +1447,7 @@ export default function App() {
             pendingReview: Boolean(operation.proposal),
             saved: false,
             ...(operation.proposal
-              ? { pendingChange: proposalForRead(operation.proposal, cell.source) }
+              ? { pendingChange: proposalForRead(operation.proposal, acceptedCell?.source ?? null) }
               : {}),
             lockedCellIds: codexLockedCellIds(current.notebookPath),
             availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
@@ -1357,19 +1469,31 @@ export default function App() {
       }
     }
 
-    if (Array.isArray(args.operations) && args.operations.some((operation) => (
-      operation && typeof operation === "object" && (operation as Record<string, unknown>).op === "replace_source"
-    ))) {
+    const migratedOperation = Array.isArray(args.operations)
+      ? args.operations.find((operation) => (
+        operation
+        && typeof operation === "object"
+        && ["replace_source", "insert_after"].includes(
+          String((operation as Record<string, unknown>).op),
+        )
+      )) as Record<string, unknown> | undefined
+      : undefined;
+    if (migratedOperation) {
+      const inserting = migratedOperation.op === "insert_after";
       return {
         success: false,
         result: {
-          error: "source_edits_require_proposal",
-          message: "Existing-cell source edits must be streamed through zbook_notebook_propose for user review.",
+          error: inserting ? "cell_insertions_require_proposal" : "source_edits_require_proposal",
+          message: inserting
+            ? "New cells must be staged with zbook_notebook_propose insert_cell for user review."
+            : "Existing-cell source edits must be streamed through zbook_notebook_propose for user review.",
           nextAction: {
             tool: NOTEBOOK_READ_TOOL,
             arguments: { includeSource: true },
           },
-          instruction: "Read the current cells, keep the relevant locks, then call zbook_notebook_propose once per coherent hunk.",
+          instruction: inserting
+            ? "Read the current cells, lock afterCellId when non-null, then call zbook_notebook_propose with action insert_cell."
+            : "Read the current cells, keep the relevant locks, then call zbook_notebook_propose once per coherent hunk.",
           availableActions: NOTEBOOK_AVAILABLE_ACTIONS,
         },
       };
@@ -1936,19 +2060,42 @@ export default function App() {
     const path = documentRef.current.notebookPath;
     if (!path) return;
     const proposals = cellProposalsRef.current[path] ?? {};
-    const reviewableIds = documentRef.current.cells
+    const reviewCells = cellsWithInsertionProposals(documentRef.current.cells, proposals);
+    const reviewableIds = reviewCells
       .filter((cell) => proposals[cell.id] && proposals[cell.id].state !== "streaming")
       .map((cell) => cell.id);
     if (!reviewableIds.length) {
       setNotice("Codex is still preparing the current cell proposals.");
       return;
     }
-    const selectedIndex = documentRef.current.cells.findIndex((cell) => cell.id === selectedIdRef.current);
-    const nextId = documentRef.current.cells
+    const selectedIndex = reviewCells.findIndex((cell) => cell.id === selectedIdRef.current);
+    const nextId = reviewCells
       .slice(selectedIndex + 1)
       .find((cell) => reviewableIds.includes(cell.id))?.id
       ?? reviewableIds[0];
     revealProposalCell(nextId);
+  }
+
+  function insertionSiblings(path: string, proposal: CellProposal): CellProposal[] {
+    if (proposal.proposalKind !== "insert") return [];
+    return Object.values(cellProposalsRef.current[path] ?? {})
+      .filter((candidate) => (
+        candidate.proposalKind === "insert"
+        && candidate.cellId !== proposal.cellId
+        && candidate.afterCellId === proposal.afterCellId
+        && candidate.beforeCellId === proposal.beforeCellId
+      ))
+      .sort((left, right) => left.createdAt - right.createdAt || left.cellId.localeCompare(right.cellId));
+  }
+
+  function reanchorInsertionSiblings(path: string, proposal: CellProposal) {
+    for (const sibling of insertionSiblings(path, proposal)) {
+      updateCellProposal(path, sibling.cellId, {
+        ...sibling,
+        afterCellId: proposal.cellId,
+        updatedAt: Date.now(),
+      });
+    }
   }
 
   async function applyCellProposal(id: string, runAfter: boolean) {
@@ -1958,15 +2105,25 @@ export default function App() {
     const proposal = cellProposal(id, path);
     const cellIndex = current.cells.findIndex((cell) => cell.id === id);
     const cell = current.cells[cellIndex];
-    if (!proposal || !cell) return;
+    if (!proposal || (proposal.proposalKind === "source" && !cell)) return;
     if (codexTurnActiveRef.current || proposal.state === "streaming" || isCodexCellLocked(id)) {
       setNotice("Wait for the Codex turn to finish before reviewing that proposal.");
       return;
     }
-    if (proposal.state === "conflict" || proposal.baseSource !== cell.source) {
+    const reconciled = reconcileCellProposal(proposal, current.cells);
+    if (!reconciled || proposal.state === "conflict" || reconciled.state === "conflict") {
       const conflicted = { ...proposal, state: "conflict" as const, updatedAt: Date.now() };
       updateCellProposal(path, id, conflicted);
-      setNotice("The accepted cell changed after this proposal was created. Reject it or ask Codex to replace it.");
+      setNotice(proposal.proposalKind === "insert"
+        ? "The proposed insertion point changed. Reject this cell or ask Codex to replace it."
+        : "The accepted cell changed after this proposal was created. Reject it or ask Codex to replace it.");
+      return;
+    }
+    const earlierSibling = insertionSiblings(path, proposal)
+      .find((sibling) => proposalComesBefore(sibling, proposal));
+    if (earlierSibling) {
+      setNotice("Review the earlier proposed cell in this insertion position first.");
+      revealProposalCell(earlierSibling.cellId);
       return;
     }
     if (notebookToolLockedRef.current) return;
@@ -1985,15 +2142,16 @@ export default function App() {
       if (savePromise.current && !(await savePromise.current)) return;
       const latest = documentRef.current;
       if (latest.notebookPath !== path) return;
-      const latestIndex = latest.cells.findIndex((item) => item.id === id);
-      if (latestIndex < 0 || latest.cells[latestIndex].source !== proposal.baseSource) {
+      let nextCells: NotebookCell[];
+      try {
+        nextCells = applyReviewedCellProposal(latest.cells, proposal);
+      } catch (error) {
+        if (!(error instanceof ProposalInputError)) throw error;
         const conflicted = { ...proposal, state: "conflict" as const, updatedAt: Date.now() };
         updateCellProposal(path, id, conflicted);
-        setNotice("The accepted cell changed before the proposal could be applied.");
+        setNotice(error.message);
         return;
       }
-      const nextCells = [...latest.cells];
-      nextCells[latestIndex] = { ...nextCells[latestIndex], source: proposal.draftSource };
       setSaveState("saving");
       await saveNotebook(path, notebookFromCells(nextCells, latest.metadata));
       const nextRevision = revision.current + 1;
@@ -2007,9 +2165,13 @@ export default function App() {
       };
       setCells(nextCells);
       setSaveState("saved");
+      if (proposal.proposalKind === "insert") reanchorInsertionSiblings(path, proposal);
       updateCellProposal(path, id, null);
+      if (proposal.proposalKind === "insert") selectCell(id);
       applied = true;
-      setNotice(runAfter ? "Applied the Codex proposal; running the cell…" : "Applied and saved the Codex proposal.");
+      setNotice(runAfter
+        ? `Applied the proposed ${proposal.proposalKind === "insert" ? "new cell" : "edit"}; running it…`
+        : `Applied and saved the proposed ${proposal.proposalKind === "insert" ? "new cell" : "cell edit"}.`);
     } catch (error) {
       setSaveState("error");
       setNotice(`Could not apply the Codex proposal: ${String(error)}`);
@@ -2030,10 +2192,17 @@ export default function App() {
       return;
     }
     updateCellProposal(path, id, null);
-    selectCell(id);
+    const fallbackId = proposal.proposalKind === "insert"
+      ? proposal.afterCellId
+        ?? proposal.beforeCellId
+        ?? documentRef.current.cells[0]?.id
+      : id;
+    if (fallbackId) selectCell(fallbackId);
     setEditingId(null);
     setMode("NAV");
-    setNotice("Rejected the Codex proposal; the accepted cell was unchanged.");
+    setNotice(proposal.proposalKind === "insert"
+      ? "Rejected the proposed new cell; the notebook was unchanged."
+      : "Rejected the Codex proposal; the accepted cell was unchanged.");
   }
 
   function reviewCodexEdit() {
@@ -2280,10 +2449,11 @@ export default function App() {
   const environmentName = status ? basename(status.config.venv) : ".venv";
   const activeLockedCellIds = notebookPath ? codexCellLocks[notebookPath] ?? [] : [];
   const activeCellProposals = notebookPath ? cellProposalsByNotebook[notebookPath] ?? {} : {};
-  const acceptedSelectedCell = cells.find((cell) => cell.id === selectedId) ?? null;
-  const selectedCellForCodex = acceptedSelectedCell && activeCellProposals[acceptedSelectedCell.id]
-    ? { ...acceptedSelectedCell, source: activeCellProposals[acceptedSelectedCell.id].draftSource }
-    : acceptedSelectedCell;
+  const visibleCells = cellsWithInsertionProposals(cells, activeCellProposals);
+  const visibleSelectedCell = visibleCells.find((cell) => cell.id === selectedId) ?? null;
+  const selectedCellForCodex = visibleSelectedCell && activeCellProposals[visibleSelectedCell.id]
+    ? { ...visibleSelectedCell, source: activeCellProposals[visibleSelectedCell.id].draftSource }
+    : visibleSelectedCell;
   const vimLayer = mode === "NAV" ? "NAV" : mode === "INSERT" || mode === "REPLACE" ? "INSERT" : "NORMAL";
   const appShellStyle = {
     "--left-pane-width": `${leftPaneWidth}px`,
@@ -2503,7 +2673,7 @@ export default function App() {
         {notebookPath ? (
           <Notebook
             path={notebookPath}
-            cells={cells}
+            cells={visibleCells}
             selectedId={selectedId}
             editingId={editingId}
             vimEnabled={vimEnabled}

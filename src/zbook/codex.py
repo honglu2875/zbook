@@ -27,12 +27,14 @@ DEFAULT_REQUEST_TIMEOUT = 30.0
 NOTEBOOK_TOOL_INSTRUCTIONS = """You are embedded in Zbook. When reading or changing the open
 notebook, use Zbook's notebook tools instead of editing the .ipynb file with shell commands or
 apply_patch. Read immediately before editing and pass its notebookPath and documentRevision as
-expectedRevision. If the user's request requires modifying existing cells, identify the relevant
-cells on the first read and immediately lock the likely set with zbook_notebook_lock before further
-investigation, reasoning, or tool actions; expand the locked set later if needed. Keep those locks
-while you read, reason, stage edits, check, and revise across the turn; unlock cells early only when
-they are no longer relevant. Locks do not change documentRevision and release automatically when
-the turn ends.
+expectedRevision. A source-bearing read provides both source and sourceLines. For every stage_hunk,
+take startLine from sourceLines[].lineNumber and copy sourceLines[].text exactly into oldLines;
+never count displayed, wrapped, or blank lines yourself. If the user's request requires modifying
+existing cells, identify the relevant cells on the first read and immediately lock the likely set
+with zbook_notebook_lock before further investigation, reasoning, or tool actions; expand the
+locked set later if needed. Keep those locks while you read, reason, stage edits, check, and revise
+across the turn; unlock cells early only when they are no longer relevant. Locks do not change
+documentRevision and release automatically when the turn ends.
 
 For source edits to existing cells, never use replace_source in zbook_notebook_apply. Instead call
 zbook_notebook_propose once per small coherent hunk so the user sees the diff develop live. Each
@@ -43,15 +45,21 @@ proposal on the user's behalf. If a read reports a proposal from an earlier turn
 either replace the complete proposal with replace_proposal or remove it with discard_proposal;
 do not layer stage_hunk calls over an earlier-turn proposal. If you need to reread while building a
 proposal in the current turn, its source is the current draft and pendingChange contains the diff.
+For a new cell, never use insert_after in zbook_notebook_apply. Lock the accepted afterCellId when
+it is non-null, then use zbook_notebook_propose insert_cell. The new cell remains unsaved and
+reviewable; use its returned cellId for any later proposal operation in the same turn.
 
 If an operation reports a conflict, read again before retrying. If you are unsure which notebook
 actions are currently available, call zbook_notebook_read: its availableActions field is the
 authoritative live tool inventory. If a call reports cells_not_locked, immediately call the exact
 tool and arguments returned in nextAction; never ask the user to lock cells in the UI.
 For a reorder-only task, read with includeSource false, lock the cells whose positions matter,
-then use move_after or swap operations in zbook_notebook_apply without resending source. Structural
-operations remain atomic and saved immediately. Shell tools remain appropriate for non-notebook
-workspace files."""
+then use move_after or swap operations in zbook_notebook_apply without resending source. Type,
+delete, and reorder operations remain atomic and saved immediately. The Zbook activity feed already
+shows reads, locks, proposals, and retries. Do not send assistant messages merely to narrate those
+routine steps or announce a successful lock; chain the tool calls silently and give one concise
+final response. Speak mid-turn only when user input is genuinely required or progress is blocked.
+Shell tools remain appropriate for non-notebook workspace files."""
 
 NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
     {
@@ -61,8 +69,10 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
             "Read the notebook currently open in the Zbook UI, including stable cell IDs and the "
             "document revision needed for edits. Use this instead of reading the .ipynb with shell "
             "commands. Set includeSource to false for reorder-only work to avoid loading cell "
-            "contents into context; it defaults to true. Every response also reports the live "
-            "availableActions tool inventory, making this the capability-discovery endpoint."
+            "contents into context; it defaults to true. Source-bearing reads include sourceLines, "
+            "an exact one-based lineNumber/text view intended for stage_hunk addressing. Every "
+            "response also reports the live availableActions tool inventory, making this the "
+            "capability-discovery endpoint."
         ),
         "inputSchema": {
             "type": "object",
@@ -113,9 +123,11 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "name": "zbook_notebook_propose",
         "description": (
-            "Stage a source-code proposal in a locked existing cell without changing or saving "
-            "the accepted notebook. For a clean cell, call stage_hunk once per small coherent "
-            "edit and use the proposalRevision returned by each call in the next call. Each hunk "
+            "Stage a reviewable cell proposal without changing or saving the accepted notebook. "
+            "Use insert_cell for a new code, markdown, or raw cell; lock its accepted afterCellId "
+            "first when non-null. For a clean existing cell, call stage_hunk once per small "
+            "coherent edit and use the proposalRevision returned by each call in the next call. "
+            "Each hunk "
             "atomically replaces exact whole oldLines beginning at the one-based startLine with "
             "newLines; pure insertions use an empty oldLines array and deletions use an empty "
             "newLines array. If a cell already has a proposal from an earlier turn, use "
@@ -124,6 +136,28 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
         ),
         "inputSchema": {
             "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "notebookPath",
+                        "expectedRevision",
+                        "expectedProposalRevision",
+                        "action",
+                        "afterCellId",
+                        "cellType",
+                        "source",
+                    ],
+                    "properties": {
+                        "notebookPath": {"type": "string"},
+                        "expectedRevision": {"type": "integer", "minimum": 0},
+                        "expectedProposalRevision": {"const": 0},
+                        "action": {"const": "insert_cell"},
+                        "afterCellId": {"type": ["string", "null"]},
+                        "cellType": {"enum": ["code", "markdown", "raw"]},
+                        "source": {"type": "string"},
+                    },
+                },
                 {
                     "type": "object",
                     "additionalProperties": False,
@@ -207,13 +241,15 @@ NOTEBOOK_DYNAMIC_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "name": "zbook_notebook_apply",
         "description": (
-            "Atomically apply structural notebook operations and save the result. Existing-cell "
-            "source edits must use zbook_notebook_propose so the user can review them before they "
-            "are saved. Always read first, lock every existing cell affected by a structural "
+            "Atomically apply type, delete, and reorder operations and save the result. Source "
+            "edits and new cells must use zbook_notebook_propose so the user can review them "
+            "before they are saved. Always read first, lock every existing cell affected by a "
+            "structural "
             "operation, and pass the exact notebookPath and documentRevision. Operations run in "
             "order and the whole batch is rejected on missing locks, a pending cell proposal, "
-            "invalid input, or a concurrent UI change. replace_source remains in the schema only "
-            "to give older threads a structured migration error and must not be used."
+            "invalid input, or a concurrent UI change. replace_source and insert_after remain in "
+            "the schema only to give older threads a structured migration error and must not be "
+            "used."
         ),
         "inputSchema": {
             "type": "object",

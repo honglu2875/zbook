@@ -227,7 +227,7 @@ export function Notebook({
             <div>
               <span>✦</span>
               <strong>{reviewableProposals.length > 0
-                ? `${reviewableProposals.length} proposed cell edit${reviewableProposals.length === 1 ? "" : "s"} await review`
+                ? `${reviewableProposals.length} proposed cell change${reviewableProposals.length === 1 ? "" : "s"} await review`
                 : `Codex is drafting ${proposals.length} cell${proposals.length === 1 ? "" : "s"}`}</strong>
               {conflictCount > 0 && <em>{conflictCount} conflicted</em>}
             </div>
@@ -260,7 +260,7 @@ export function Notebook({
             <div className="notebook-cell-group" key={cell.id}>
               <article
                 data-cell-id={cell.id}
-                className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${proposal ? "has-codex-proposal" : ""} ${proposal?.state === "streaming" ? "is-proposal-streaming" : ""} ${proposal?.state === "review" ? "is-proposal-review" : ""} ${proposal?.state === "conflict" ? "is-proposal-conflict" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
+                className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${proposal ? "has-codex-proposal" : ""} ${proposal?.proposalKind === "insert" ? "is-proposal-insert" : ""} ${proposal?.state === "streaming" ? "is-proposal-streaming" : ""} ${proposal?.state === "review" ? "is-proposal-review" : ""} ${proposal?.state === "conflict" ? "is-proposal-conflict" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
                 tabIndex={0}
                 onFocus={(event) => {
                   if (event.target === event.currentTarget) onSelect(cell.id);
@@ -274,7 +274,7 @@ export function Notebook({
                   if ((event.target as HTMLElement).closest(".cell-editor")) return;
                   if (!cellLocked) onEdit(cell.id);
                 }}
-                aria-label={`${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}${proposal ? ", with a Codex proposal" : ""}`}
+                aria-label={`${proposal?.proposalKind === "insert" ? "proposed new " : ""}${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}${proposal ? ", with a Codex proposal" : ""}`}
               >
                 <div
                   className="cell-rail"
@@ -397,13 +397,22 @@ export function Notebook({
                       {proposal && (
                         <div className="cell-proposal-actions" onClick={(event) => event.stopPropagation()}>
                           {proposal.state === "streaming" ? (
-                            <span><i />Codex is editing this cell…</span>
+                            <span>
+                              <i />
+                              {proposal.proposalKind === "insert"
+                                ? `Codex is drafting this new ${proposal.cellKind} cell…`
+                                : "Codex is editing this cell…"}
+                            </span>
                           ) : (
                             <>
                               <span className={proposal.state === "conflict" ? "is-conflict" : ""}>
                                 {proposal.state === "conflict"
-                                  ? "Accepted source changed; replace or reject this proposal"
-                                  : "Review this proposed change"}
+                                  ? proposal.proposalKind === "insert"
+                                    ? "Insertion point changed; replace or reject this proposed cell"
+                                    : "Accepted source changed; replace or reject this proposal"
+                                  : proposal.proposalKind === "insert"
+                                    ? `Review this proposed new ${proposal.cellKind} cell`
+                                    : "Review this proposed change"}
                               </span>
                               <div>
                                 <button

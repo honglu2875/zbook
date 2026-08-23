@@ -16,6 +16,10 @@ export interface NotebookToolResponse {
   result: unknown;
 }
 
+export function numberedSourceLines(source: string): Array<{ lineNumber: number; text: string }> {
+  return source.split("\n").map((text, index) => ({ lineNumber: index + 1, text }));
+}
+
 export interface AppliedNotebookOperations {
   cells: NotebookCell[];
   affectedCellIds: string[];

@@ -1,4 +1,5 @@
-import type { CellProposal } from "../model/cellProposals";
+import type { CellProposal, CellProposalKind } from "../model/cellProposals";
+import type { CellKind } from "../model/notebook";
 
 interface StoredCellProposal extends CellProposal {
   key: string;
@@ -30,21 +31,52 @@ function queuedWrite(key: string, operation: () => Promise<void>): Promise<void>
   return current;
 }
 
-function validStoredProposal(value: unknown): value is StoredCellProposal {
-  if (!value || typeof value !== "object") return false;
+function storedCellKind(value: unknown): CellKind | null {
+  return value === "code" || value === "markdown" || value === "raw" ? value : null;
+}
+
+function nullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function normalizeStoredProposal(value: unknown): StoredCellProposal | null {
+  if (!value || typeof value !== "object") return null;
   const proposal = value as Partial<StoredCellProposal>;
-  return typeof proposal.key === "string"
+  const commonIsValid = typeof proposal.key === "string"
     && typeof proposal.workspace === "string"
     && typeof proposal.notebookPath === "string"
     && typeof proposal.cellId === "string"
     && typeof proposal.baseSource === "string"
     && typeof proposal.draftSource === "string"
     && Number.isInteger(proposal.baseDocumentRevision)
+    && (proposal.baseDocumentRevision ?? -1) >= 0
     && Number.isInteger(proposal.proposalRevision)
+    && (proposal.proposalRevision ?? -1) >= 1
     && (proposal.ownerThreadId === null || typeof proposal.ownerThreadId === "string")
     && (proposal.ownerTurnId === null || typeof proposal.ownerTurnId === "string")
     && (proposal.state === "streaming" || proposal.state === "review" || proposal.state === "conflict")
-    && typeof proposal.updatedAt === "number";
+    && typeof proposal.updatedAt === "number"
+    && Number.isFinite(proposal.updatedAt);
+  if (!commonIsValid) return null;
+
+  // Proposals written by the first review implementation predate proposalKind.
+  const proposalKind: CellProposalKind = proposal.proposalKind === "insert" ? "insert" : "source";
+  const cellKind = storedCellKind(proposal.cellKind) ?? "code";
+  const afterCellId = nullableString(proposal.afterCellId) ? proposal.afterCellId : null;
+  const beforeCellId = nullableString(proposal.beforeCellId) ? proposal.beforeCellId : null;
+  if (proposalKind === "insert" && (
+    !storedCellKind(proposal.cellKind)
+    || !nullableString(proposal.afterCellId)
+    || !nullableString(proposal.beforeCellId)
+  )) return null;
+  return {
+    ...(proposal as StoredCellProposal),
+    proposalKind,
+    cellKind,
+    afterCellId,
+    beforeCellId,
+    createdAt: typeof proposal.createdAt === "number" ? proposal.createdAt : proposal.updatedAt!,
+  };
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -102,8 +134,9 @@ export async function loadCellProposals(workspace: string): Promise<CellProposal
     (store) => store.index(WORKSPACE_INDEX).getAll(workspace) as IDBRequest<StoredCellProposal[]>,
   );
   return records.flatMap((record): CellProposal[] => {
-    if (!validStoredProposal(record) || record.workspace !== workspace) return [];
-    const { key: _key, workspace: _workspace, ...proposal } = record;
+    const normalized = normalizeStoredProposal(record);
+    if (!normalized || normalized.workspace !== workspace) return [];
+    const { key: _key, workspace: _workspace, ...proposal } = normalized;
     return [{
       ...proposal,
       state: proposal.state === "streaming" ? "review" : proposal.state,

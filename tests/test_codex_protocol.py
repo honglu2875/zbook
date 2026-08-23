@@ -128,8 +128,15 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(
             proposal_actions,
-            {"stage_hunk", "replace_proposal", "discard_proposal"},
+            {"insert_cell", "stage_hunk", "replace_proposal", "discard_proposal"},
         )
+        insert_schema = next(
+            schema
+            for schema in proposal_schemas
+            if schema["properties"]["action"]["const"] == "insert_cell"
+        )
+        self.assertEqual(insert_schema["properties"]["expectedProposalRevision"]["const"], 0)
+        self.assertEqual(insert_schema["properties"]["afterCellId"]["type"], ["string", "null"])
         hunk_schema = next(
             schema
             for schema in proposal_schemas
@@ -148,7 +155,7 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("includeSource false", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn(
-            "immediately lock the likely set with zbook_notebook_lock",
+            "immediately lock the likely set",
             NOTEBOOK_TOOL_INSTRUCTIONS,
         )
         self.assertIn("release automatically", NOTEBOOK_TOOL_INSTRUCTIONS)
@@ -156,6 +163,9 @@ class CodexProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("arguments returned in nextAction", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("once per small coherent hunk", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("proposal on the user's behalf", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("sourceLines[].lineNumber", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("never use insert_after", NOTEBOOK_TOOL_INSTRUCTIONS)
+        self.assertIn("announce a successful lock", NOTEBOOK_TOOL_INSTRUCTIONS)
         self.assertIn("capability-discovery endpoint", tools["zbook_notebook_read"]["description"])
 
     async def test_thread_resume_and_read_use_app_server_endpoints(self) -> None:

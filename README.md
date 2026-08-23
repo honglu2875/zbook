@@ -77,11 +77,11 @@ The keybindings are not customizable so far, but if I get other users at all, we
 
 ## Reviewing Codex cell edits
 
-Codex source edits are proposals, not immediate notebook writes. Zbook asks Codex to lock the relevant cells, then streams small source hunks into a read-only diff: removed lines are red and inserted lines are green. The accepted cell source and its existing output remain untouched while the turn is running.
+Codex source edits and newly created cells are proposals, not immediate notebook writes. Zbook asks Codex to lock the relevant cells, then streams small source hunks into a read-only diff: removed lines are red and inserted lines are green. A proposed new cell appears at its intended position with an all-green diff. The accepted notebook and its existing outputs remain untouched while the turn is running.
 
 When the turn finishes, each changed cell offers **Apply**, **Apply & Run** (for code cells), and **Reject** above its output. The notebook banner reports how many proposals remain and **Review next** moves through them in notebook order. Applying saves the proposed source atomically; rejecting restores the unchanged accepted view. Unresolved proposals survive a browser or app restart in the browser's IndexedDB. If the notebook changed on disk in the meantime, Zbook marks the proposal as conflicted instead of applying it over newer work.
 
-Cell insertion, deletion, type changes, and reordering still use the atomic structural notebook tool and save immediately. Those operations retain the existing review/undo banner.
+Deletion, type changes, and reordering still use the atomic structural notebook tool and save immediately. Those operations retain the existing review/undo banner. Source-bearing notebook reads also expose exact one-based `sourceLines` so Codex can address hunks without counting wrapped or blank lines itself.
 
 ## Development
 

@@ -1,12 +1,17 @@
 import { Text } from "@codemirror/state";
 import { Chunk } from "@codemirror/merge";
-import type { NotebookCell } from "./notebook";
+import type { CellKind, NotebookCell } from "./notebook";
 
 export type CellProposalState = "streaming" | "review" | "conflict";
+export type CellProposalKind = "source" | "insert";
 
 export interface CellProposal {
   notebookPath: string;
   cellId: string;
+  proposalKind: CellProposalKind;
+  cellKind: CellKind;
+  afterCellId: string | null;
+  beforeCellId: string | null;
   baseSource: string;
   draftSource: string;
   baseDocumentRevision: number;
@@ -14,6 +19,7 @@ export interface CellProposal {
   ownerThreadId: string | null;
   ownerTurnId: string | null;
   state: CellProposalState;
+  createdAt: number;
   updatedAt: number;
 }
 
@@ -37,7 +43,7 @@ export interface ProposalDiff {
 
 export interface ProposalOperationResult {
   proposal: CellProposal | null;
-  action: "stage_hunk" | "replace_proposal" | "discard_proposal";
+  action: "insert_cell" | "stage_hunk" | "replace_proposal" | "discard_proposal";
   previousProposalRevision: number;
 }
 
@@ -71,6 +77,11 @@ function requiredSource(value: unknown, label: string): string {
     throw new ProposalInputError("invalid_proposal", `${label} is too large.`);
   }
   return value;
+}
+
+function requiredCellKind(value: unknown): CellKind {
+  if (value === "code" || value === "markdown" || value === "raw") return value;
+  throw new ProposalInputError("invalid_proposal", "cellType must be code, markdown, or raw.");
 }
 
 function requiredLines(value: unknown, label: string): string[] {
@@ -108,6 +119,27 @@ function sameLines(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((line, index) => line === right[index]);
 }
 
+function matchingStartLines(lines: string[], oldLines: string[]): number[] {
+  if (!oldLines.length || oldLines.length > lines.length) return [];
+  const matches: number[] = [];
+  const startedAt = Date.now();
+  for (let index = 0; index <= lines.length - oldLines.length; index += 1) {
+    if (index % 2_048 === 0 && Date.now() - startedAt > 25) break;
+    let matchesHere = true;
+    for (let offset = 0; offset < oldLines.length; offset += 1) {
+      if (lines[index + offset] !== oldLines[offset]) {
+        matchesHere = false;
+        break;
+      }
+    }
+    if (matchesHere) {
+      matches.push(index + 1);
+      if (matches.length === 12) break;
+    }
+  }
+  return matches;
+}
+
 function changedProposal(
   cell: NotebookCell,
   current: CellProposal | null,
@@ -119,10 +151,15 @@ function changedProposal(
 ): CellProposal | null {
   const currentBaseIsValid = Boolean(current && current.baseSource === cell.source);
   const baseSource = currentBaseIsValid ? current!.baseSource : cell.source;
-  if (draftSource === baseSource) return null;
+  if (draftSource === baseSource && current?.proposalKind !== "insert") return null;
+  const now = Date.now();
   return {
     notebookPath,
     cellId: cell.id,
+    proposalKind: current?.proposalKind ?? "source",
+    cellKind: current?.cellKind ?? cell.kind,
+    afterCellId: current?.afterCellId ?? null,
+    beforeCellId: current?.beforeCellId ?? null,
     baseSource,
     draftSource,
     baseDocumentRevision: currentBaseIsValid ? current!.baseDocumentRevision : documentRevision,
@@ -130,7 +167,50 @@ function changedProposal(
     ownerThreadId: owner.threadId,
     ownerTurnId: owner.turnId,
     state: "streaming",
-    updatedAt: Date.now(),
+    createdAt: current?.createdAt ?? now,
+    updatedAt: now,
+  };
+}
+
+export function createInsertionProposal(
+  argumentsValue: Record<string, unknown>,
+  notebookPath: string,
+  documentRevision: number,
+  owner: ProposalOwner,
+  beforeCellId: string | null,
+): ProposalOperationResult {
+  if (argumentsValue.action !== "insert_cell") {
+    throw new ProposalInputError("invalid_proposal", "action must be insert_cell.");
+  }
+  proposalRevision(argumentsValue.expectedProposalRevision, null);
+  const afterCellId = argumentsValue.afterCellId;
+  if (afterCellId !== null && (typeof afterCellId !== "string" || !afterCellId || afterCellId.length > 200)) {
+    throw new ProposalInputError(
+      "invalid_proposal",
+      "afterCellId must be null or identify one current accepted cell.",
+    );
+  }
+  const now = Date.now();
+  return {
+    proposal: {
+      notebookPath,
+      cellId: crypto.randomUUID(),
+      proposalKind: "insert",
+      cellKind: requiredCellKind(argumentsValue.cellType),
+      afterCellId,
+      beforeCellId,
+      baseSource: "",
+      draftSource: requiredSource(argumentsValue.source, "source"),
+      baseDocumentRevision: documentRevision,
+      proposalRevision: 1,
+      ownerThreadId: owner.threadId,
+      ownerTurnId: owner.turnId,
+      state: "streaming",
+      createdAt: now,
+      updatedAt: now,
+    },
+    action: "insert_cell",
+    previousProposalRevision: 0,
   };
 }
 
@@ -208,7 +288,11 @@ export function applyProposalOperation(
     throw new ProposalInputError(
       "hunk_context_mismatch",
       "The requested line range is outside the current proposed source. Read the notebook again.",
-      { currentProposalRevision: previousProposalRevision, lineCount: lines.length },
+      {
+        currentProposalRevision: previousProposalRevision,
+        lineCount: lines.length,
+        suggestedStartLines: matchingStartLines(lines, oldLines),
+      },
     );
   }
   const actualLines = lines.slice(startIndex, startIndex + oldLines.length);
@@ -220,6 +304,7 @@ export function applyProposalOperation(
         currentProposalRevision: previousProposalRevision,
         startLine,
         actualLines,
+        suggestedStartLines: matchingStartLines(lines, oldLines),
       },
     );
   }
@@ -266,25 +351,125 @@ export function proposalDiff(proposal: CellProposal): ProposalDiff {
 
 export function proposalForRead(
   proposal: CellProposal,
-  acceptedSource: string,
+  acceptedSource: string | null,
   includeDiff = true,
 ): Record<string, unknown> {
   return {
+    changeKind: proposal.proposalKind,
+    cellType: proposal.cellKind,
+    ...(proposal.proposalKind === "insert"
+      ? { afterCellId: proposal.afterCellId, beforeCellId: proposal.beforeCellId }
+      : {}),
     state: proposal.state,
     proposalRevision: proposal.proposalRevision,
     ownerTurnId: proposal.ownerTurnId,
-    acceptedSourceChanged: proposal.baseSource !== acceptedSource,
+    acceptedSourceChanged: proposal.proposalKind === "source" && proposal.baseSource !== acceptedSource,
     ...(includeDiff ? { diff: proposalDiff(proposal) } : {}),
   };
 }
 
 export function reconcileCellProposal(
   proposal: CellProposal,
-  cell: NotebookCell | undefined,
+  acceptedCells: NotebookCell[],
 ): CellProposal | null {
+  const cell = acceptedCells.find((item) => item.id === proposal.cellId);
+  if (proposal.proposalKind === "insert") {
+    if (cell) return null;
+    const afterIndex = proposal.afterCellId === null
+      ? -1
+      : acceptedCells.findIndex((item) => item.id === proposal.afterCellId);
+    const beforeIndex = proposal.beforeCellId === null
+      ? acceptedCells.length
+      : acceptedCells.findIndex((item) => item.id === proposal.beforeCellId);
+    const positionIsValid = (proposal.afterCellId === null || afterIndex >= 0)
+      && (proposal.beforeCellId === null || beforeIndex >= 0)
+      && beforeIndex === afterIndex + 1;
+    return {
+      ...proposal,
+      state: positionIsValid ? "review" : "conflict",
+    };
+  }
   if (!cell) return null;
   return {
     ...proposal,
+    cellKind: cell.kind,
     state: proposal.baseSource === cell.source ? "review" : "conflict",
   };
+}
+
+export function cellFromInsertionProposal(proposal: CellProposal): NotebookCell {
+  return {
+    id: proposal.cellId,
+    kind: proposal.cellKind,
+    source: proposal.baseSource,
+    metadata: {},
+    executionCount: null,
+    state: "idle",
+    outputs: [],
+  };
+}
+
+export function cellsWithInsertionProposals(
+  acceptedCells: NotebookCell[],
+  proposals: Record<string, CellProposal>,
+): NotebookCell[] {
+  const insertions = Object.values(proposals)
+    .filter((proposal) => proposal.proposalKind === "insert")
+    .sort((left, right) => left.createdAt - right.createdAt || left.cellId.localeCompare(right.cellId));
+  if (!insertions.length) return acceptedCells;
+
+  const result: NotebookCell[] = [];
+  const rendered = new Set<string>();
+  function appendMatching(predicate: (proposal: CellProposal) => boolean) {
+    for (const proposal of insertions) {
+      if (rendered.has(proposal.cellId) || !predicate(proposal)) continue;
+      result.push(cellFromInsertionProposal(proposal));
+      rendered.add(proposal.cellId);
+    }
+  }
+
+  for (const cell of acceptedCells) {
+    appendMatching((proposal) => proposal.beforeCellId === cell.id);
+    result.push(cell);
+    appendMatching((proposal) => (
+      proposal.beforeCellId === null && proposal.afterCellId === cell.id
+    ));
+  }
+  appendMatching((proposal) => proposal.afterCellId === null && proposal.beforeCellId === null);
+  appendMatching(() => true);
+  return result;
+}
+
+export function applyReviewedCellProposal(
+  acceptedCells: NotebookCell[],
+  proposal: CellProposal,
+): NotebookCell[] {
+  if (reconcileCellProposal(proposal, acceptedCells)?.state !== "review") {
+    throw new ProposalInputError(
+      "proposal_conflict",
+      proposal.proposalKind === "insert"
+        ? "The insertion position changed after this cell was proposed."
+        : "The accepted cell source changed after this edit was proposed.",
+    );
+  }
+
+  const nextCells = [...acceptedCells];
+  if (proposal.proposalKind === "insert") {
+    const beforeIndex = proposal.beforeCellId === null
+      ? -1
+      : acceptedCells.findIndex((cell) => cell.id === proposal.beforeCellId);
+    const afterIndex = proposal.afterCellId === null
+      ? -1
+      : acceptedCells.findIndex((cell) => cell.id === proposal.afterCellId);
+    const insertionIndex = beforeIndex >= 0 ? beforeIndex : afterIndex + 1;
+    nextCells.splice(insertionIndex, 0, {
+      ...cellFromInsertionProposal(proposal),
+      source: proposal.draftSource,
+    });
+    return nextCells;
+  }
+
+  const cellIndex = acceptedCells.findIndex((cell) => cell.id === proposal.cellId);
+  nextCells[cellIndex] = { ...nextCells[cellIndex], source: proposal.draftSource };
+  return nextCells;
 }
