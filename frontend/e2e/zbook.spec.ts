@@ -119,3 +119,29 @@ test("quotes selected lines into the Codex composer and can remove them", async 
   await page.getByRole("button", { name: "Remove quoted selection" }).click();
   await expect(page.locator(".prompt-selection-quote")).toHaveCount(0);
 });
+
+test("keeps both side panels usable as narrow-screen drawers", async ({ page }) => {
+  await page.setViewportSize({ width: 560, height: 760 });
+  await page.goto("./?token=zbook-playwright-token");
+
+  const codexPanel = page.locator(".codex-panel");
+  await expect(codexPanel).toBeVisible();
+  const codexBounds = await codexPanel.boundingBox();
+  expect(codexBounds).not.toBeNull();
+  expect(codexBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(codexBounds!.x + codexBounds!.width).toBeLessThanOrEqual(561);
+
+  await page.getByRole("button", { name: "Toggle Codex" }).click();
+  await expect(codexPanel).toHaveCount(0);
+  await expect(page.locator(".file-panel")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close open side panel" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Close open side panel" }).click();
+  await expect(page.locator(".file-panel")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Toggle files" }).click();
+  await expect(page.locator(".file-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Toggle Codex" }).click();
+  await expect(page.locator(".file-panel")).toHaveCount(0);
+  await expect(codexPanel).toBeVisible();
+});
