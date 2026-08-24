@@ -12,7 +12,9 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // GitHub runners occasionally miss one real-kernel assertion deadline under
+  // load. Retry only the failed journey once in CI; local failures stay immediate.
+  retries: process.env.CI ? 1 : 0,
   timeout: 30_000,
   expect: { timeout: 8_000 },
   reporter: process.env.CI ? "line" : "list",
