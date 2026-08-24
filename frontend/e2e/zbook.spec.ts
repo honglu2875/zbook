@@ -70,6 +70,10 @@ test("monitors and restarts the active notebook kernel", async ({ page }) => {
 
 test("keeps multiple tabs, renames a tab, and closes it", async ({ page }) => {
   await openNotebook(page, "core.ipynb");
+  const secondaryBarHeights = await page.locator(".panel-heading, .tabbar, .codex-heading")
+    .evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
+  expect(secondaryBarHeights).toEqual([32, 32, 32]);
+
   await page.getByRole("button", { name: "second.ipynb", exact: true }).click();
   await expect(page.locator(".notebook-tab")).toHaveCount(2);
 
