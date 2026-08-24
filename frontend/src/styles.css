@@ -51,6 +51,7 @@ svg {
 .app-shell {
   --left-width: 0px;
   --right-width: 0px;
+  --secondary-bar-height: 32px;
   display: grid;
   grid-template-columns: var(--left-width) minmax(0, 1fr) var(--right-width);
   grid-template-rows: 38px minmax(0, 1fr) 24px;
@@ -135,7 +136,7 @@ body.is-resizing-pane .app-shell { transition: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 36px;
+  height: var(--secondary-bar-height);
   padding: 0 10px 0 13px;
   color: #757b81;
   font-size: 10.5px;
@@ -225,7 +226,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .notebook-area {
   grid-area: notebook;
   display: grid;
-  grid-template-rows: 35px minmax(0, 1fr);
+  grid-template-rows: var(--secondary-bar-height) minmax(0, 1fr);
   min-width: 0;
   background: #181a1c;
 }
@@ -298,7 +299,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .tab-close {
   align-self: stretch;
   width: 29px;
-  min-height: 34px;
+  min-height: var(--secondary-bar-height);
   flex: 0 0 29px;
   padding: 0;
   color: #777e85 !important;
@@ -706,7 +707,7 @@ body.is-resizing-pane .app-shell { transition: none; }
   grid-area: codex;
   position: relative;
   display: grid;
-  grid-template-rows: 36px 32px minmax(0, 1fr) auto auto;
+  grid-template-rows: var(--secondary-bar-height) 32px minmax(0, 1fr) auto auto;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -744,7 +745,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .quota-summary strong { color: #b9a071; font: 10px/1.3 var(--font-mono); font-weight: 520; }
 .quota-summary svg { width: 8px; height: 8px; align-self: center; color: #666d73; transform: rotate(90deg); transition: transform 100ms ease-out; }
 .quota-summary.is-open svg { transform: rotate(-90deg); }
-.codex-account-popover, .codex-thread-popover { position: absolute; z-index: 9; top: 42px; right: 8px; left: 8px; border: 1px solid #3a3e41; background: #222528; box-shadow: 0 12px 34px #0009; }
+.codex-account-popover, .codex-thread-popover { position: absolute; z-index: 9; top: calc(var(--secondary-bar-height) + 6px); right: 8px; left: 8px; border: 1px solid #3a3e41; background: #222528; box-shadow: 0 12px 34px #0009; }
 .codex-account-popover > header { display: flex; align-items: center; justify-content: space-between; min-width: 0; padding: 10px; border-bottom: 1px solid #34383b; }
 .codex-account-popover > header > div { display: flex; align-items: center; min-width: 0; gap: 8px; }
 .codex-account-popover > header i { display: grid; place-items: center; width: 25px; height: 25px; flex: 0 0 auto; border: 1px solid #595043; border-radius: 50%; color: #cfaa6d; font: 10px var(--font-mono); font-style: normal; }
