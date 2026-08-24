@@ -10,9 +10,9 @@ describe("platform shortcut labels", () => {
   });
 
   it("formats labels for the active modifier", () => {
-    expect(primaryShortcut(",", { platform: "Linux x86_64" })).toBe("Ctrl+,");
+    expect(primaryShortcut("S", { platform: "Linux x86_64" })).toBe("Ctrl+S");
     expect(primaryShortcut("P", { shift: true, platform: "Win32" })).toBe("Ctrl+Shift+P");
-    expect(primaryShortcut(",", { platform: "MacIntel" })).toBe("⌘,");
+    expect(primaryShortcut("S", { platform: "MacIntel" })).toBe("⌘S");
     expect(primaryShortcut("P", { shift: true, platform: "MacIntel" })).toBe("⇧⌘P");
   });
 });

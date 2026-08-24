@@ -678,11 +678,6 @@ export default function App() {
 
   useEffect(() => {
     function handleGlobalKeys(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key === ",") {
-        event.preventDefault();
-        openPreferences();
-        return;
-      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
         openCommandPalette(event.shiftKey ? "commands" : "files");
@@ -3000,7 +2995,6 @@ export default function App() {
   const quickOpenShortcut = primaryShortcut("P");
   const commandPaletteShortcut = primaryShortcut("P", { shift: true });
   const saveShortcut = primaryShortcut("S");
-  const preferencesShortcut = primaryShortcut(",");
   const paletteCommands: PaletteCommand[] = [
     {
       id: "notebook.new",
@@ -3077,7 +3071,6 @@ export default function App() {
       detail: preferenceBackend?.source === "file"
         ? `Settings from ${preferenceBackend.displayPath}`
         : "Editor, notebook, Codex, and storage settings",
-      shortcut: preferencesShortcut,
       run: openPreferences,
     },
     {
@@ -3112,7 +3105,7 @@ export default function App() {
             onClick={openPreferences}
             aria-label="Open preferences"
             aria-pressed={preferencesOpen}
-            title={`Preferences (${preferencesShortcut})`}
+            title="Preferences"
           ><SettingsIcon /></button>
         </div>
       </header>

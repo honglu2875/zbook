@@ -1,6 +1,6 @@
 # User settings
 
-Zbook can keep durable personal preferences in an optional JSON file on the machine that runs the Zbook server. Use the cog in the top-right title bar, choose **Preferences** from the command palette (`Ctrl+Shift+P`), or press `Ctrl+,` to inspect the active storage source and create or reload the file. On macOS, use `Cmd` in place of `Ctrl`.
+Zbook can keep durable personal preferences in an optional JSON file on the machine that runs the Zbook server. Use the cog in the top-right title bar or choose **Preferences** from the command palette (`Ctrl+Shift+P`; `Cmd+Shift+P` on macOS) to inspect the active storage source and create or reload the file.
 
 The default host path is:
 

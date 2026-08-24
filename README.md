@@ -135,7 +135,7 @@ Navigation mode keeps common work off the mouse:
 - `dd`, completed within 500 ms, deletes the selected cell. `u` undoes a structural edit; with Vim enabled, `Ctrl-R` redoes it.
 - `c` focuses the Codex prompt. `Escape` returns to the selected notebook cell after dismissing any open Codex popup.
 - `Ctrl-Enter` runs in place, `Shift-Enter` runs and advances, and `Alt-Enter` runs and inserts.
-- `Ctrl+P` opens files; `Ctrl+Shift+P` opens app commands; `Ctrl+S` saves; `Ctrl+,` opens Preferences. On macOS, use `Cmd` in place of `Ctrl`.
+- `Ctrl+P` opens files; `Ctrl+Shift+P` opens app commands; `Ctrl+S` saves. On macOS, use `Cmd` in place of `Ctrl`.
 
 Vim bindings are opt-in from the lower-left status bar. With Vim enabled, the editor has three layers: cell navigation, Vim normal, and Vim insert. `Escape` steps back one layer at a time.
 

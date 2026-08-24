@@ -330,7 +330,7 @@ test("drags a Matplotlib Slider and redraws its live figure", async ({ page }) =
 test("creates and reloads durable host preferences", async ({ page, request }) => {
   await openNotebook(page, "core.ipynb");
   const preferencesButton = page.getByRole("button", { name: "Open preferences" });
-  await expect(preferencesButton).toHaveAttribute("title", "Preferences (Ctrl+,)");
+  await expect(preferencesButton).toHaveAttribute("title", "Preferences");
   await preferencesButton.click();
 
   let dialog = page.getByRole("dialog", { name: "Preferences" });
@@ -377,7 +377,7 @@ test("creates and reloads durable host preferences", async ({ page, request }) =
     (element) => getComputedStyle(element).whiteSpace,
   )).toBe("pre");
 
-  await page.keyboard.press("Control+Comma");
+  await preferencesButton.click();
   dialog = page.getByRole("dialog", { name: "Preferences" });
   await expect(dialog).toContainText("Settings file on this Zbook host");
   await expect(dialog.getByRole("spinbutton", { name: /Code font size/ })).toHaveValue("15.5");
