@@ -24,7 +24,7 @@ export const zbookTheme = [
       "&": {
         color: "#d7d9dc",
         backgroundColor: "transparent",
-        fontSize: "13.5px",
+        fontSize: "var(--code-font-size, 13.5px)",
       },
       ".cm-content": {
         caretColor: "#e9c77e",

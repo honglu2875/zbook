@@ -31,10 +31,12 @@ from .handlers import (
     KernelPrepareHandler,
     PackageHandler,
     PackagesHandler,
+    PreferencesHandler,
     StatusHandler,
 )
 from .kernel_metrics import KernelMetricsSampler
 from .kernel_spec import install_runtime_kernel_spec
+from .preferences import UserSettingsStore
 from .uv_env import UvEnvironment, UvRunner
 
 
@@ -58,6 +60,14 @@ class ZbookApp(ExtensionApp):
         ),
         config=True,
     )
+    settings_file = Unicode(
+        default_value="",
+        help=(
+            "Optional path to Zbook's user settings JSON file. "
+            "Defaults to ~/.zbook/settings.json on the machine running Zbook."
+        ),
+        config=True,
+    )
 
     app_config: AppConfig
     uv_environment: UvEnvironment
@@ -67,6 +77,7 @@ class ZbookApp(ExtensionApp):
     environment_lock: asyncio.Lock
     codex_lock: asyncio.Lock
     kernel_metrics: KernelMetricsSampler
+    user_settings: UserSettingsStore
 
     @property
     def static_root(self) -> Path:
@@ -97,6 +108,10 @@ class ZbookApp(ExtensionApp):
         self.environment_lock = asyncio.Lock()
         self.codex_lock = asyncio.Lock()
         self.kernel_metrics = KernelMetricsSampler()
+        settings_path = Path(self.settings_file).expanduser() if self.settings_file else (
+            Path.home() / ".zbook" / "settings.json"
+        )
+        self.user_settings = UserSettingsStore(settings_path)
         root_dir = str(self.app_config.workspace)
 
         # Extension applications load after Jupyter creates these managers, so
@@ -174,6 +189,7 @@ class ZbookApp(ExtensionApp):
                 (r"/zbook", CanonicalUrlHandler),
                 (r"/zbook/", IndexHandler),
                 (r"/zbook/api/status", StatusHandler),
+                (r"/zbook/api/preferences", PreferencesHandler),
                 (r"/zbook/api/environments", EnvironmentsHandler),
                 (r"/zbook/api/packages", PackagesHandler),
                 (r"/zbook/api/packages/([^/]+)", PackageHandler),

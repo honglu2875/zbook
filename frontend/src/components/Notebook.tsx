@@ -37,6 +37,8 @@ interface NotebookProps {
   selectedId: string;
   editingId: string | null;
   vimEnabled: boolean;
+  lineWrapping: boolean;
+  tabSize: number;
   saveState: SaveState;
   canRun: boolean;
   locked: boolean;
@@ -232,6 +234,8 @@ export function Notebook({
   selectedId,
   editingId,
   vimEnabled,
+  lineWrapping,
+  tabSize,
   saveState,
   canRun,
   locked,
@@ -479,6 +483,8 @@ export function Notebook({
                             diffOriginal={proposal?.baseSource}
                             editing={editing}
                             vimEnabled={vimEnabled}
+                            lineWrapping={lineWrapping}
+                            tabSize={tabSize}
                             readOnly={cellLocked}
                             onChange={(source) => onChange(cell.id, source)}
                             onRun={(advance, insert) => onRun(cell.id, advance, insert)}

@@ -56,6 +56,8 @@ function renderProposal(
       selectedId={cell.id}
       editingId={null}
       vimEnabled={false}
+      lineWrapping
+      tabSize={4}
       saveState={saveState}
       canRun
       locked={false}

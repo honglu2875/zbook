@@ -135,9 +135,11 @@ Navigation mode keeps common work off the mouse:
 - `dd`, completed within 500 ms, deletes the selected cell. `u` undoes a structural edit; with Vim enabled, `Ctrl-R` redoes it.
 - `c` focuses the Codex prompt. `Escape` returns to the selected notebook cell after dismissing any open Codex popup.
 - `Ctrl-Enter` runs in place, `Shift-Enter` runs and advances, and `Alt-Enter` runs and inserts.
-- `Ctrl/Cmd-P` opens files; `Shift-Ctrl/Cmd-P` opens app commands; `Ctrl/Cmd-S` saves.
+- `Ctrl/Cmd-P` opens files; `Shift-Ctrl/Cmd-P` opens app commands; `Ctrl/Cmd-S` saves; `Ctrl/Cmd-,` opens Preferences.
 
-Vim bindings are opt-in from the lower-left status bar. The preference is stored in browser-local storage rather than a user configuration file. With Vim enabled, the editor has three layers: cell navigation, Vim normal, and Vim insert. `Escape` steps back one layer at a time.
+Vim bindings are opt-in from the lower-left status bar. With Vim enabled, the editor has three layers: cell navigation, Vim normal, and Vim insert. `Escape` steps back one layer at a time.
+
+Durable editor, notebook, and Codex defaults can use an optional host-side `~/.zbook/settings.json`; without it, Zbook uses browser-local storage. The file is never created or repaired silently. See the [user settings schema and storage rules](docs/settings.md).
 
 ## Codex workflow
 

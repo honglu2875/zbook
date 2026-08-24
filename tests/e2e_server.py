@@ -174,6 +174,7 @@ if __name__ == "__main__":
                     str(options.port),
                     "--",
                     f"--ZbookApp.venv={project_root / '.venv'}",
+                    f"--ZbookApp.settings_file={workspace / '.zbook-settings.json'}",
                     "--ServerApp.open_browser=False",
                     "--ServerApp.port_retries=0",
                     f"--IdentityProvider.token={options.token}",

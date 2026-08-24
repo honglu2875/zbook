@@ -1,5 +1,8 @@
-const documentBase = new URL(".", window.location.href);
-const launchToken = new URL(window.location.href).searchParams.get("token");
+const browserLocation = typeof window === "undefined"
+  ? "http://localhost/zbook/"
+  : window.location.href;
+const documentBase = new URL(".", browserLocation);
+const launchToken = new URL(browserLocation).searchParams.get("token");
 
 export function jupyterServerUrl(): URL {
   return new URL("../", documentBase);
