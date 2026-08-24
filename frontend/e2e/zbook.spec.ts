@@ -326,3 +326,61 @@ test("drags a Matplotlib Slider and redraws its live figure", async ({ page }) =
   await expect(second.locator(".cell-output")).toContainText("2");
   await expect(second.locator(".cell-output")).toContainText("Expert load — run-2, block 4");
 });
+
+test("creates and reloads durable host preferences", async ({ page, request }) => {
+  await openNotebook(page, "core.ipynb");
+  const preferencesButton = page.getByRole("button", { name: "Open preferences" });
+  await expect(preferencesButton).toHaveAttribute("title", "Preferences");
+  await preferencesButton.click();
+
+  let dialog = page.getByRole("dialog", { name: "Preferences" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Saved in this browser");
+
+  const vimStatus = page.locator(".status-vim-controls > button").first();
+  await dialog.getByRole("checkbox", { name: /Vim bindings/ }).check();
+  await dialog.getByRole("button", { name: "Close preferences" }).click();
+  await expect(vimStatus).toContainText("VIM");
+  await vimStatus.click();
+  await preferencesButton.click();
+  dialog = page.getByRole("dialog", { name: "Preferences" });
+  await expect(dialog.getByRole("checkbox", { name: /Vim bindings/ })).not.toBeChecked();
+
+  await dialog.getByRole("spinbutton", { name: /Code font size/ }).fill("15.5");
+  await dialog.getByRole("checkbox", { name: /Wrap long lines/ }).uncheck();
+  await dialog.getByRole("button", { name: /Create settings file/ }).click();
+  await expect(dialog).toContainText("Settings file on this Zbook host");
+  await expect(dialog.locator(".preferences-storage-summary")).toContainText("Saved");
+
+  await dialog.getByRole("spinbutton", { name: /Limited output height/ }).fill("340");
+
+  const preferencesUrl = new URL("/zbook/api/preferences", page.url());
+  preferencesUrl.searchParams.set("token", "zbook-playwright-token");
+  await expect.poll(async () => {
+    const current = await request.get(preferencesUrl.toString());
+    return (await current.json()).settings.notebook.outputMaxHeight;
+  }).toBe(340);
+  const response = await request.get(preferencesUrl.toString());
+  expect(response.ok()).toBeTruthy();
+  const snapshot = await response.json();
+  expect(snapshot.source).toBe("file");
+  expect(snapshot.settings.editor.codeFontSize).toBe(15.5);
+  expect(snapshot.settings.editor.lineWrapping).toBe(false);
+
+  await dialog.getByRole("button", { name: "Close preferences" }).click();
+  await page.reload();
+  await expect(page.locator(".notebook-cell").first()).toBeVisible();
+  await expect.poll(() => page.locator(".cm-editor").first().evaluate(
+    (element) => getComputedStyle(element).fontSize,
+  )).toBe("15.5px");
+  await expect.poll(() => page.locator(".cm-content").first().evaluate(
+    (element) => getComputedStyle(element).whiteSpace,
+  )).toBe("pre");
+
+  await preferencesButton.click();
+  dialog = page.getByRole("dialog", { name: "Preferences" });
+  await expect(dialog).toContainText("Settings file on this Zbook host");
+  await expect(dialog.getByRole("spinbutton", { name: /Code font size/ })).toHaveValue("15.5");
+  await expect(dialog.getByRole("spinbutton", { name: /Limited output height/ })).toHaveValue("340");
+  await expect(dialog.getByRole("checkbox", { name: /Wrap long lines/ })).not.toBeChecked();
+});

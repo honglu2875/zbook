@@ -14,6 +14,7 @@ import {
   type NotebookToolResponse,
 } from "../model/notebookTools";
 import { websocketUrl } from "../services/http";
+import { isCodexEffort, type CodexEffort } from "../services/preferences";
 import {
   ChevronIcon,
   CloseIcon,
@@ -108,6 +109,9 @@ interface CodexPanelProps {
   notebookPath: string | null;
   selectedCell: NotebookCell | null;
   selectionQuote: NotebookSelectionQuote | null;
+  modelPreference: string;
+  effortPreference: CodexEffort;
+  onCodexPreferenceChange: (model: string, effort: CodexEffort) => void;
   onBeforePrompt: () => Promise<boolean>;
   onWorkspaceChanged: () => void;
   onTurnStarted: () => void;
@@ -128,10 +132,6 @@ interface QuotaView {
   weekly: boolean;
 }
 
-// Version the preference once so browsers that auto-saved the former Terra
-// default receive the new Luna default. Explicit choices persist from here on.
-const MODEL_STORAGE = "zbook.codex.model.v2";
-const EFFORT_STORAGE = "zbook.codex.effort";
 const WEEK_MINUTES = 7 * 24 * 60;
 const THREAD_STORE_VERSION = 1;
 const MAX_STORED_THREADS = 30;
@@ -199,22 +199,6 @@ function errorDetail(value: unknown): string {
     return String((value as { message: unknown }).message);
   }
   return value ? JSON.stringify(value) : "The Codex turn did not complete.";
-}
-
-function storedValue(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function storeValue(key: string, value: string) {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Storage can be disabled without affecting the active session.
-  }
 }
 
 function modelValue(model: CodexModel): string {
@@ -297,6 +281,9 @@ export function CodexPanel({
   notebookPath,
   selectedCell,
   selectionQuote,
+  modelPreference,
+  effortPreference,
+  onCodexPreferenceChange,
   onBeforePrompt,
   onWorkspaceChanged,
   onTurnStarted,
@@ -311,6 +298,8 @@ export function CodexPanel({
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [account, setAccount] = useState<AccountState | null>(null);
   const [models, setModels] = useState<CodexModel[]>([]);
+  // Resolved runtime values may reflect catalog fallbacks or a server reroute.
+  // Durable choices remain controlled by modelPreference/effortPreference.
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedEffort, setSelectedEffort] = useState("");
   const [rateLimits, setRateLimits] = useState<RateLimitsState | null>(null);
@@ -341,6 +330,10 @@ export function CodexPanel({
   const modelsRef = useRef<CodexModel[]>([]);
   const modelRef = useRef("");
   const effortRef = useRef("");
+  const modelPreferenceRef = useRef(modelPreference);
+  const effortPreferenceRef = useRef(effortPreference);
+  const defaultModelRef = useRef("");
+  const defaultEffortRef = useRef("");
   const activeThreadRef = useRef<string | null>(null);
   const boundThreadRef = useRef<string | null>(null);
   const pendingThreadTitle = useRef<string | null>(null);
@@ -348,8 +341,10 @@ export function CodexPanel({
   const threadPopover = useRef<HTMLElement>(null);
   const accountToggle = useRef<HTMLButtonElement>(null);
   const accountPopover = useRef<HTMLElement>(null);
-  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onTurnStarted, onTurnFinished, onNotebookToolCall });
-  callbacks.current = { onBeforePrompt, onWorkspaceChanged, onTurnStarted, onTurnFinished, onNotebookToolCall };
+  const callbacks = useRef({ onBeforePrompt, onWorkspaceChanged, onTurnStarted, onTurnFinished, onNotebookToolCall, onCodexPreferenceChange });
+  callbacks.current = { onBeforePrompt, onWorkspaceChanged, onTurnStarted, onTurnFinished, onNotebookToolCall, onCodexPreferenceChange };
+  modelPreferenceRef.current = modelPreference;
+  effortPreferenceRef.current = effortPreference;
   activeThreadRef.current = threadStore.activeId;
 
   useEffect(() => {
@@ -498,7 +493,28 @@ export function CodexPanel({
     if (element) element.scrollTop = element.scrollHeight;
   }, [messages, approvals]);
 
-  function setModelSelection(value: string, catalog = models, preferredEffort?: string | null) {
+  useEffect(() => {
+    const catalog = modelsRef.current;
+    if (!catalog.length) return;
+    const requested = modelPreference || defaultModelRef.current;
+    const resolved = catalog.find((model) => modelValue(model) === requested)
+      ?? catalog.find((model) => modelValue(model) === defaultModelRef.current)
+      ?? catalog[0];
+    if (!resolved) return;
+    setModelSelection(
+      modelValue(resolved),
+      catalog,
+      effortPreference || defaultEffortRef.current,
+      false,
+    );
+  }, [effortPreference, modelPreference, models]);
+
+  function setModelSelection(
+    value: string,
+    catalog = models,
+    preferredEffort?: string | null,
+    persist = true,
+  ) {
     const model = catalog.find((item) => modelValue(item) === value);
     if (!model) return;
     const efforts = modelEfforts(model);
@@ -515,15 +531,18 @@ export function CodexPanel({
     effortRef.current = nextEffort;
     setSelectedModel(value);
     setSelectedEffort(nextEffort);
-    storeValue(MODEL_STORAGE, value);
-    if (nextEffort) storeValue(EFFORT_STORAGE, nextEffort);
+    if (persist && isCodexEffort(nextEffort)) {
+      callbacks.current.onCodexPreferenceChange(value, nextEffort);
+    }
   }
 
   function applyCatalog(catalog: CodexModel[], defaults: { model?: unknown; effort?: unknown }) {
     modelsRef.current = catalog;
     setModels(catalog);
-    const requested = modelRef.current || storedValue(MODEL_STORAGE);
     const fallback = typeof defaults.model === "string" ? defaults.model : modelValue(catalog[0]);
+    defaultModelRef.current = fallback;
+    defaultEffortRef.current = typeof defaults.effort === "string" ? defaults.effort : "";
+    const requested = modelPreferenceRef.current || fallback;
     const model = catalog.find((item) => modelValue(item) === requested)
       ?? catalog.find((item) => modelValue(item) === fallback)
       ?? catalog[0];
@@ -534,10 +553,10 @@ export function CodexPanel({
       setSelectedEffort("");
       return;
     }
-    const requestedEffort = effortRef.current
-      || storedValue(EFFORT_STORAGE)
-      || (typeof defaults.effort === "string" ? defaults.effort : null);
-    setModelSelection(modelValue(model), catalog, requestedEffort);
+    const requestedEffort = effortPreferenceRef.current
+      || defaultEffortRef.current
+      || null;
+    setModelSelection(modelValue(model), catalog, requestedEffort, false);
   }
 
   function addAssistantError(text: string) {
@@ -782,7 +801,7 @@ export function CodexPanel({
     if (method === "model/rerouted" && typeof params.toModel === "string") {
       const catalog = modelsRef.current;
       if (catalog.some((model) => modelValue(model) === params.toModel)) {
-        setModelSelection(params.toModel, catalog, effortRef.current);
+        setModelSelection(params.toModel, catalog, effortRef.current, false);
       }
       return;
     }
@@ -955,7 +974,7 @@ export function CodexPanel({
       const catalog = modelsRef.current;
       const model = typeof message.model === "string" ? message.model : modelRef.current;
       if (catalog.some((item) => modelValue(item) === model)) {
-        setModelSelection(model, catalog, typeof message.effort === "string" ? message.effort : effortRef.current);
+        setModelSelection(model, catalog, typeof message.effort === "string" ? message.effort : effortRef.current, false);
       }
       return;
     }
@@ -971,7 +990,7 @@ export function CodexPanel({
     if (message.type === "turn") {
       const catalog = modelsRef.current;
       if (typeof message.model === "string" && catalog.some((item) => modelValue(item) === message.model)) {
-        setModelSelection(message.model, catalog, typeof message.effort === "string" ? message.effort : effortRef.current);
+        setModelSelection(message.model, catalog, typeof message.effort === "string" ? message.effort : effortRef.current, false);
       }
       setStage("Thinking");
       return;
@@ -1255,9 +1274,12 @@ export function CodexPanel({
                 aria-label="Codex reasoning effort"
                 value={selectedEffort}
                 onChange={(event) => {
-                  effortRef.current = event.target.value;
-                  setSelectedEffort(event.target.value);
-                  storeValue(EFFORT_STORAGE, event.target.value);
+                  const effort = event.target.value;
+                  effortRef.current = effort;
+                  setSelectedEffort(effort);
+                  if (isCodexEffort(effort)) {
+                    callbacks.current.onCodexPreferenceChange(modelRef.current, effort);
+                  }
                 }}
                 disabled={!ready || busy || efforts.length === 0}
               >

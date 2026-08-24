@@ -13,6 +13,10 @@ import { EnvironmentPanel } from "./components/EnvironmentPanel";
 import { FileTree } from "./components/FileTree";
 import { KernelMonitor } from "./components/KernelMonitor";
 import {
+  PreferencesPanel,
+  type PreferenceSaveState,
+} from "./components/PreferencesPanel";
+import {
   BranchIcon,
   CloseIcon,
   NotebookIcon,
@@ -21,6 +25,7 @@ import {
   PlayIcon,
   PlusIcon,
   SearchIcon,
+  SettingsIcon,
   StopIcon,
 } from "./components/icons";
 import {
@@ -96,6 +101,17 @@ import {
 } from "./services/documentRecovery";
 import { appUrl, requestJson } from "./services/http";
 import { selectEnvironment } from "./services/environment";
+import {
+  createSettingsFile,
+  fetchPreferenceBackend,
+  hasBrowserPreferenceRecord,
+  loadBrowserPreferences,
+  storeBrowserPreferences,
+  updateSettingsFile,
+  type PreferenceBackend,
+  type UserPreferences,
+} from "./services/preferences";
+import { primaryShortcut } from "./services/shortcuts";
 import {
   loadCellProposals,
   removeCellProposal,
@@ -177,7 +193,6 @@ const RIGHT_PANE_MAX = 620;
 const MIN_NOTEBOOK_WIDTH = 360;
 const LEFT_PANE_STORAGE = "zbook.layout.leftWidth";
 const RIGHT_PANE_STORAGE = "zbook.layout.rightWidth";
-const USER_PREFERENCES_STORAGE = "zbook.preferences.v1";
 const WORKSPACE_SESSION_VERSION = 1;
 const CELL_STRUCTURE_HISTORY_LIMIT = 100;
 const VIM_KEY_SEQUENCE_TIMEOUT_MS = 500;
@@ -239,29 +254,6 @@ function storePaneWidth(key: string, value: number) {
     window.localStorage.setItem(key, String(Math.round(value)));
   } catch {
     // Layout persistence is optional when browser storage is unavailable.
-  }
-}
-
-function storedUserPreferences(): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(USER_PREFERENCES_STORAGE) ?? "null") as Record<string, unknown> | null;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function storedVimPreference(): boolean | null {
-  const value = storedUserPreferences().vimEnabled;
-  return typeof value === "boolean" ? value : null;
-}
-
-function storeVimPreference(vimEnabled: boolean) {
-  try {
-    const preferences = storedUserPreferences();
-    window.localStorage.setItem(USER_PREFERENCES_STORAGE, JSON.stringify({ ...preferences, vimEnabled }));
-  } catch {
-    // Preference persistence is optional when browser storage is unavailable.
   }
 }
 
@@ -362,10 +354,13 @@ export default function App() {
   const [selectedId, setSelectedId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mode, setMode] = useState("NAV");
-  const [vimEnabled, setVimEnabled] = useState(() => storedVimPreference() ?? false);
+  const [preferences, setPreferences] = useState<UserPreferences>(() => loadBrowserPreferences());
+  const [preferenceBackend, setPreferenceBackend] = useState<PreferenceBackend | null>(null);
+  const [preferenceSaveState, setPreferenceSaveState] = useState<PreferenceSaveState>("loading");
+  const [preferenceError, setPreferenceError] = useState<string | null>(null);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [vimKeymapOpen, setVimKeymapOpen] = useState(false);
   const [pendingCellDeleteId, setPendingCellDeleteId] = useState<string | null>(null);
-  const [userPreferencesReady, setUserPreferencesReady] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [leftPaneWidth, setLeftPaneWidth] = useState(() => storedPaneWidth(
@@ -422,6 +417,12 @@ export default function App() {
   const pendingCellDeleteRef = useRef<PendingCellDelete | null>(null);
   const vimKeymapRef = useRef<HTMLDivElement | null>(null);
   const kernelMonitorRef = useRef<HTMLDivElement | null>(null);
+  const preferencesRef = useRef(preferences);
+  const preferenceSaveTimer = useRef<number | null>(null);
+  const preferenceSaveGeneration = useRef(0);
+  const preferenceWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  const persistedPreferences = useRef(JSON.stringify(preferences));
+  const browserPreferencesExistedAtLaunch = useRef(hasBrowserPreferenceRecord());
   const restoredWorkspace = useRef<string | null>(null);
   const workspaceNavigationVersion = useRef(0);
   const paneInteractionVersion = useRef(0);
@@ -440,6 +441,8 @@ export default function App() {
   openTabsRef.current = openTabs;
   selectedIdRef.current = selectedId;
   cellViewsByNotebookRef.current = cellViewsByNotebook;
+  preferencesRef.current = preferences;
+  const vimEnabled = preferences.editor.vim;
   const renderNotebookWidget = useCallback((modelId: string, element: HTMLElement) => {
     const path = documentRef.current.notebookPath;
     if (!path) return Promise.reject(new Error("No notebook is open for this widget."));
@@ -453,6 +456,7 @@ export default function App() {
   useEffect(() => {
     void refreshStatus();
     void loadDirectory("", true);
+    void reloadPreferences();
   }, []);
 
   useEffect(() => {
@@ -474,11 +478,6 @@ export default function App() {
       setLeftOpen(session.leftOpen);
       setRightOpen(session.rightOpen);
     }
-    const storedVimEnabled = storedVimPreference();
-    const restoredVimEnabled = storedVimEnabled ?? session.vimEnabled ?? false;
-    setVimEnabled(restoredVimEnabled);
-    if (storedVimEnabled === null) storeVimPreference(restoredVimEnabled);
-    setUserPreferencesReady(true);
     setCellViewsByNotebook(session.cellViewsByNotebook);
     const navigationVersion = workspaceNavigationVersion.current;
     let cancelled = false;
@@ -521,6 +520,18 @@ export default function App() {
 
   useEffect(() => {
     const workspace = status?.config.workspace;
+    if (!workspace || !preferenceBackend || browserPreferencesExistedAtLaunch.current) return;
+    if (preferenceBackend.source === "file") {
+      browserPreferencesExistedAtLaunch.current = true;
+      return;
+    }
+    const legacyVim = loadWorkspaceSession(workspace).vimEnabled;
+    browserPreferencesExistedAtLaunch.current = true;
+    if (legacyVim !== undefined) setVimEnabled(legacyVim);
+  }, [preferenceBackend?.source, status?.config.workspace]);
+
+  useEffect(() => {
+    const workspace = status?.config.workspace;
     if (!workspace || !workspaceSessionReady || restoredWorkspace.current !== workspace) return;
     const selections = { ...selectedByNotebook.current };
     if (notebookPath && selectedId) selections[notebookPath] = selectedId;
@@ -542,8 +553,70 @@ export default function App() {
   }, [cellViewsByNotebook, leftOpen, notebookPath, openTabs, rightOpen, selectedId, status?.config.workspace, treeDirectory, workspaceSessionReady]);
 
   useEffect(() => {
-    if (userPreferencesReady) storeVimPreference(vimEnabled);
-  }, [userPreferencesReady, vimEnabled]);
+    const serialized = JSON.stringify(preferences);
+    if (serialized === persistedPreferences.current) return;
+    const backend = preferenceBackend;
+
+    if (!backend) {
+      const stored = storeBrowserPreferences(preferences);
+      if (stored) persistedPreferences.current = serialized;
+      setPreferenceSaveState(stored ? "saved" : "error");
+      if (!stored) setPreferenceError("Browser storage is unavailable; changes last for this session.");
+      return;
+    }
+
+    if (backend.source === "browser") {
+      const stored = storeBrowserPreferences(preferences);
+      if (stored) persistedPreferences.current = serialized;
+      setPreferenceSaveState(stored ? "saved" : "error");
+      setPreferenceError(stored ? null : "Browser storage is unavailable; changes last for this session.");
+      return;
+    }
+    if (!backend.writable || backend.status === "read_only") {
+      setPreferenceSaveState("session");
+      setPreferenceError(null);
+      return;
+    }
+
+    if (preferenceSaveTimer.current !== null) window.clearTimeout(preferenceSaveTimer.current);
+    const generation = ++preferenceSaveGeneration.current;
+    setPreferenceSaveState("saving");
+    setPreferenceError(null);
+    preferenceSaveTimer.current = window.setTimeout(() => {
+      preferenceSaveTimer.current = null;
+      const sent = preferences;
+      const sentSerialized = serialized;
+      preferenceWriteQueue.current = preferenceWriteQueue.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            const snapshot = await updateSettingsFile(sent);
+            persistedPreferences.current = sentSerialized;
+            if (generation === preferenceSaveGeneration.current) {
+              setPreferenceBackend(snapshot);
+              setPreferenceSaveState("saved");
+              setPreferenceError(null);
+            }
+          } catch (error) {
+            if (generation === preferenceSaveGeneration.current) {
+              setPreferenceSaveState("error");
+              setPreferenceError(String(error));
+            }
+          }
+        });
+    }, 280);
+    return () => {
+      if (preferenceSaveTimer.current !== null) {
+        window.clearTimeout(preferenceSaveTimer.current);
+        preferenceSaveTimer.current = null;
+      }
+    };
+  }, [
+    preferences,
+    preferenceBackend?.source,
+    preferenceBackend?.status,
+    preferenceBackend?.writable,
+  ]);
 
   useEffect(() => {
     if (!vimKeymapOpen && !kernelMonitorOpen) return;
@@ -570,6 +643,7 @@ export default function App() {
   useEffect(() => () => {
     void kernelPool.shutdownAll();
     if (pendingCellDeleteRef.current) window.clearTimeout(pendingCellDeleteRef.current.timer);
+    if (preferenceSaveTimer.current !== null) window.clearTimeout(preferenceSaveTimer.current);
     document.body.classList.remove("is-resizing-pane");
   }, []);
 
@@ -614,6 +688,7 @@ export default function App() {
         void saveFromUser();
         return;
       }
+      if (preferencesOpen) return;
       const navigableCells = cellsWithInsertionProposals(
         cells,
         notebookPath ? cellProposalsRef.current[notebookPath] ?? {} : {},
@@ -693,7 +768,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleGlobalKeys);
     return () => window.removeEventListener("keydown", handleGlobalKeys);
-  }, [cellProposalsByNotebook, cells, mode, notebookPath, vimEnabled]);
+  }, [cellProposalsByNotebook, cells, mode, notebookPath, preferencesOpen, vimEnabled]);
 
   useEffect(() => {
     if (!notice) return;
@@ -704,6 +779,93 @@ export default function App() {
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [notebookPath, openTabs.length]);
+
+  function setVimEnabled(value: boolean | ((current: boolean) => boolean)) {
+    setPreferences((current) => ({
+      ...current,
+      editor: {
+        ...current.editor,
+        vim: typeof value === "function" ? value(current.editor.vim) : value,
+      },
+    }));
+  }
+
+  function openPreferences() {
+    setEnvironmentOpen(false);
+    setKernelMonitorOpen(false);
+    setVimKeymapOpen(false);
+    setPaletteMode(null);
+    setPreferencesOpen(true);
+  }
+
+  async function reloadPreferences() {
+    const generation = ++preferenceSaveGeneration.current;
+    if (preferenceSaveTimer.current !== null) {
+      window.clearTimeout(preferenceSaveTimer.current);
+      preferenceSaveTimer.current = null;
+    }
+    setPreferenceSaveState("loading");
+    setPreferenceError(null);
+    try {
+      const backend = await fetchPreferenceBackend();
+      if (generation !== preferenceSaveGeneration.current) return;
+      const next = backend.source === "file" ? backend.settings : loadBrowserPreferences();
+      preferencesRef.current = next;
+      persistedPreferences.current = JSON.stringify(next);
+      setPreferences(next);
+      setPreferenceBackend(backend);
+      if (backend.source === "browser" && !storeBrowserPreferences(next)) {
+        setPreferenceSaveState("error");
+        setPreferenceError("Browser storage is unavailable; changes last for this session.");
+      } else {
+        setPreferenceSaveState("saved");
+      }
+    } catch (error) {
+      if (generation !== preferenceSaveGeneration.current) return;
+      const stored = storeBrowserPreferences(preferencesRef.current);
+      if (stored) persistedPreferences.current = JSON.stringify(preferencesRef.current);
+      setPreferenceBackend(null);
+      setPreferenceSaveState(stored ? "saved" : "error");
+      setPreferenceError(
+        `Could not check settings on the Zbook host: ${String(error)}`
+        + (stored ? "" : " Browser storage is also unavailable; changes last for this session."),
+      );
+    }
+  }
+
+  async function createUserSettingsFile() {
+    const generation = ++preferenceSaveGeneration.current;
+    const sent = preferencesRef.current;
+    setPreferenceSaveState("saving");
+    setPreferenceError(null);
+    try {
+      const backend = await createSettingsFile(sent);
+      if (generation !== preferenceSaveGeneration.current) return;
+      persistedPreferences.current = JSON.stringify(backend.settings);
+      if (JSON.stringify(preferencesRef.current) === JSON.stringify(sent)) {
+        preferencesRef.current = backend.settings;
+        setPreferences(backend.settings);
+      }
+      setPreferenceBackend(backend);
+      setPreferenceSaveState("saved");
+      setNotice(`Created ${backend.displayPath} on the Zbook host.`);
+    } catch (error) {
+      if (generation !== preferenceSaveGeneration.current) return;
+      setPreferenceSaveState("error");
+      setPreferenceError(String(error));
+    }
+  }
+
+  async function copySettingsPath() {
+    const path = preferenceBackend?.path;
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      setNotice("Copied the settings path.");
+    } catch {
+      setNotice(`Settings path: ${path}`);
+    }
+  }
 
   async function loadDirectory(path: string, refresh = false): Promise<boolean> {
     if (!refresh && directoriesRef.current[path] !== undefined) return true;
@@ -2710,7 +2872,11 @@ export default function App() {
       setNotice("Interrupt the running cell before restarting its kernel.");
       return;
     }
-    if (state === "idle" && !window.confirm(`Restart the kernel for ${basename(path)}? All variables will be cleared.`)) {
+    if (
+      state === "idle"
+      && preferences.notebook.confirmKernelRestart
+      && !window.confirm(`Restart the kernel for ${basename(path)}? All variables will be cleared.`)
+    ) {
       return;
     }
     setBusy(true);
@@ -2823,7 +2989,12 @@ export default function App() {
   const appShellStyle = {
     "--left-pane-width": `${leftPaneWidth}px`,
     "--right-pane-width": `${rightPaneWidth}px`,
+    "--code-font-size": `${preferences.editor.codeFontSize}px`,
+    "--output-max-height": `${preferences.notebook.outputMaxHeight}px`,
   } as CSSProperties;
+  const quickOpenShortcut = primaryShortcut("P");
+  const commandPaletteShortcut = primaryShortcut("P", { shift: true });
+  const saveShortcut = primaryShortcut("S");
   const paletteCommands: PaletteCommand[] = [
     {
       id: "notebook.new",
@@ -2836,7 +3007,7 @@ export default function App() {
       id: "notebook.save",
       label: "Save notebook",
       detail: notebookPath ?? "No notebook open",
-      shortcut: "⌘S",
+      shortcut: saveShortcut,
       disabled: !notebookPath || saveState === "saving",
       run: () => void saveFromUser(),
     },
@@ -2895,10 +3066,18 @@ export default function App() {
       run: () => setVimEnabled((value) => !value),
     },
     {
+      id: "app.preferences",
+      label: "Open preferences",
+      detail: preferenceBackend?.source === "file"
+        ? `Settings from ${preferenceBackend.displayPath}`
+        : "Editor, notebook, Codex, and storage settings",
+      run: openPreferences,
+    },
+    {
       id: "help.keys",
       label: "Show keyboard shortcuts",
       detail: "Notebook navigation and app commands",
-      run: () => setNotice("Keys: ⌘/Ctrl-P quick open · ⇧⌘/Ctrl-P commands · J/K select · A/O insert after · ⇧O insert before · C focus Codex · Escape step back · ⌘/Ctrl-S save"),
+      run: () => setNotice(`Keys: ${quickOpenShortcut} quick open · ${commandPaletteShortcut} commands · J/K select · A/O insert after · ⇧O insert before · C focus Codex · Escape step back · ${saveShortcut} save`),
     },
   ];
   return (
@@ -2913,13 +3092,21 @@ export default function App() {
         </div>
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => toggleSidePanel("left")} aria-label="Toggle files" aria-pressed={leftOpen}><PanelIcon /></button>
-          <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title="Quick open (Ctrl/Cmd-P)"><SearchIcon /></button>
+          <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title={`Quick open (${quickOpenShortcut})`}><SearchIcon /></button>
           {kernelState === "busy" ? (
             <button className="run-all" onClick={() => void interruptKernel()}><StopIcon />Interrupt</button>
           ) : (
             <button className="run-all" disabled={!notebookPath || notebookToolLocked || !status?.kernel.ready} onClick={() => void runAll()}><PlayIcon />Run all</button>
           )}
           <button className={rightOpen ? "is-active" : ""} onClick={() => toggleSidePanel("right")} aria-label="Toggle Codex" aria-pressed={rightOpen}><PanelRightIcon /></button>
+          <button
+            className={preferencesOpen ? "is-active" : ""}
+            type="button"
+            onClick={openPreferences}
+            aria-label="Open preferences"
+            aria-pressed={preferencesOpen}
+            title="Preferences"
+          ><SettingsIcon /></button>
         </div>
       </header>
       {(leftOpen || rightOpen) && (
@@ -3062,6 +3249,8 @@ export default function App() {
             selectedId={selectedId}
             editingId={editingId}
             vimEnabled={vimEnabled}
+            lineWrapping={preferences.editor.lineWrapping}
+            tabSize={preferences.editor.tabSize}
             saveState={saveState}
             canRun={Boolean(status?.kernel.ready) && !notebookToolLocked && kernelState !== "busy" && kernelState !== "starting"}
             locked={notebookToolLocked}
@@ -3127,6 +3316,12 @@ export default function App() {
           notebookPath={notebookPath}
           selectedCell={selectedCellForCodex}
           selectionQuote={codexSelectionQuote}
+          modelPreference={preferences.codex.model}
+          effortPreference={preferences.codex.effort}
+          onCodexPreferenceChange={(model, effort) => setPreferences((current) => ({
+            ...current,
+            codex: { model, effort },
+          }))}
           onBeforePrompt={ensureDocumentSaved}
           onWorkspaceChanged={() => void refreshAfterCodexChange()}
           onTurnStarted={startCodexTurn}
@@ -3145,6 +3340,19 @@ export default function App() {
           onClose={() => setEnvironmentOpen(false)}
           onChanged={() => void refreshStatus()}
           onSelect={changeEnvironment}
+        />
+      )}
+      {preferencesOpen && (
+        <PreferencesPanel
+          preferences={preferences}
+          backend={preferenceBackend}
+          saveState={preferenceSaveState}
+          error={preferenceError}
+          onChange={setPreferences}
+          onCreateFile={() => void createUserSettingsFile()}
+          onReload={() => void reloadPreferences()}
+          onCopyPath={() => void copySettingsPath()}
+          onClose={() => setPreferencesOpen(false)}
         />
       )}
       {paletteMode && (

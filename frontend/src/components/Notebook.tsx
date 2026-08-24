@@ -6,6 +6,7 @@ import {
   selectionLineLabel,
   type CellTextSelection,
 } from "../model/selectionContext";
+import { primaryShortcut } from "../services/shortcuts";
 import { CellEditor, type CellSelectionAction } from "./CellEditor";
 import {
   ChevronIcon,
@@ -37,6 +38,8 @@ interface NotebookProps {
   selectedId: string;
   editingId: string | null;
   vimEnabled: boolean;
+  lineWrapping: boolean;
+  tabSize: number;
   saveState: SaveState;
   canRun: boolean;
   locked: boolean;
@@ -232,6 +235,8 @@ export function Notebook({
   selectedId,
   editingId,
   vimEnabled,
+  lineWrapping,
+  tabSize,
   saveState,
   canRun,
   locked,
@@ -275,6 +280,7 @@ export function Notebook({
   const proposals = Object.values(cellProposals);
   const reviewableProposals = proposals.filter((proposal) => proposal.state !== "streaming");
   const conflictCount = reviewableProposals.filter((proposal) => proposal.state === "conflict").length;
+  const saveShortcut = primaryShortcut("S");
 
   return (
     <main className="notebook-scroll" aria-busy={locked}>
@@ -283,7 +289,7 @@ export function Notebook({
           <div className="notebook-title"><h1>{title}</h1><span>.ipynb</span></div>
           <div className="notebook-document-actions">
             <span className={`save-state save-${saveState}`}>{saveLabel}</span>
-            <button onClick={onSave} disabled={saveState === "saving" || locked} title={saveState === "conflict" ? "Resolve external changes" : "Save notebook (Ctrl/Cmd-S)"}><SaveIcon />{saveState === "conflict" ? "Resolve" : "Save"}</button>
+            <button onClick={onSave} disabled={saveState === "saving" || locked} title={saveState === "conflict" ? "Resolve external changes" : `Save notebook (${saveShortcut})`}><SaveIcon />{saveState === "conflict" ? "Resolve" : "Save"}</button>
             <button onClick={onReload} disabled={saveState === "saving" || locked || lockedCellIds.length > 0} title="Reload notebook from disk"><RefreshIcon />Reload</button>
             <button onClick={onExport} title="Export .ipynb"><DownloadIcon />Export</button>
           </div>
@@ -479,6 +485,8 @@ export function Notebook({
                             diffOriginal={proposal?.baseSource}
                             editing={editing}
                             vimEnabled={vimEnabled}
+                            lineWrapping={lineWrapping}
+                            tabSize={tabSize}
                             readOnly={cellLocked}
                             onChange={(source) => onChange(cell.id, source)}
                             onRun={(advance, insert) => onRun(cell.id, advance, insert)}

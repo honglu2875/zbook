@@ -13,6 +13,7 @@ from tornado import web
 
 from .config import AppConfig
 from .kernel_spec import inspect_ipykernel
+from .preferences import SettingsStoreError
 from .uv_env import UvEnvironment, UvError, UvOperation, UvRunner
 
 
@@ -115,6 +116,38 @@ class StatusHandler(APIHandler):
         }
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))
+
+
+class PreferencesHandler(APIHandler):
+    """Expose only Zbook's validated preference schema, never arbitrary files."""
+
+    @web.authenticated
+    async def get(self) -> None:
+        self.set_header("Cache-Control", "no-store, max-age=0")
+        snapshot = await asyncio.to_thread(_app(self).user_settings.snapshot)
+        _finish_json(self, snapshot)
+
+    async def _write(self, *, create: bool) -> None:
+        body = self.get_json_body() or {}
+        settings = body.get("settings")
+        if settings is None:
+            _finish_json(self, {"ok": False, "message": "A settings object is required"}, 400)
+            return
+        operation = _app(self).user_settings.create if create else _app(self).user_settings.update
+        try:
+            snapshot = await asyncio.to_thread(operation, settings)
+        except SettingsStoreError as error:
+            _finish_json(self, {"ok": False, "message": str(error)}, error.status_code)
+            return
+        _finish_json(self, snapshot, 201 if create else 200)
+
+    @web.authenticated
+    async def post(self) -> None:
+        await self._write(create=True)
+
+    @web.authenticated
+    async def put(self) -> None:
+        await self._write(create=False)
 
 
 class KernelMetricsHandler(APIHandler):

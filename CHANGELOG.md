@@ -8,6 +8,7 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 - A compact active-kernel monitor with on-demand CPU and memory history, uptime, process statistics, and explicit interrupt or restart controls.
 - README positioning centered on native, structured Codex interaction with live notebook cells.
+- Compact Preferences UI with an optional validated `~/.zbook/settings.json`, browser fallback, atomic host-side writes, and documented schema and precedence rules.
 
 ## [1.0.0rc1] - 2026-08-23
 

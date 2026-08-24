@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
+import { indentUnit } from "@codemirror/language";
 import { unifiedMergeView } from "@codemirror/merge";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -25,6 +26,8 @@ interface CellEditorProps {
   diffOriginal?: string;
   editing: boolean;
   vimEnabled: boolean;
+  lineWrapping: boolean;
+  tabSize: number;
   readOnly: boolean;
   onChange: (source: string) => void;
   onRun: (advance: boolean, insert: boolean) => void;
@@ -46,6 +49,8 @@ export function CellEditor({
   diffOriginal,
   editing,
   vimEnabled,
+  lineWrapping,
+  tabSize,
   readOnly,
   onChange,
   onRun,
@@ -124,6 +129,8 @@ export function CellEditor({
         ...(vimEnabled && !readOnly ? [vim()] : []),
         basicSetup,
         keymap.of([indentWithTab]),
+        EditorState.tabSize.of(tabSize),
+        indentUnit.of(" ".repeat(tabSize)),
         EditorState.readOnly.of(readOnly),
         EditorView.editable.of(!readOnly),
         ...(diffOriginal !== undefined ? [unifiedMergeView({
@@ -137,7 +144,7 @@ export function CellEditor({
         })] : []),
         ...(kind === "code" ? [python()] : kind === "markdown" ? [markdown()] : []),
         zbookTheme,
-        EditorView.lineWrapping,
+        ...(lineWrapping ? [EditorView.lineWrapping] : []),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !synchronizingSource.current) {
             callbacks.current.onChange(update.state.doc.toString());
@@ -179,7 +186,7 @@ export function CellEditor({
       view.current?.destroy();
       view.current = null;
     };
-  }, [kind, vimEnabled, readOnly, diffOriginal]);
+  }, [kind, vimEnabled, readOnly, diffOriginal, lineWrapping, tabSize]);
 
   useEffect(() => {
     const editor = view.current;
