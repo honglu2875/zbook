@@ -298,6 +298,8 @@ export function CodexPanel({
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [account, setAccount] = useState<AccountState | null>(null);
   const [models, setModels] = useState<CodexModel[]>([]);
+  // Resolved runtime values may reflect catalog fallbacks or a server reroute.
+  // Durable choices remain controlled by modelPreference/effortPreference.
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedEffort, setSelectedEffort] = useState("");
   const [rateLimits, setRateLimits] = useState<RateLimitsState | null>(null);
@@ -330,6 +332,8 @@ export function CodexPanel({
   const effortRef = useRef("");
   const modelPreferenceRef = useRef(modelPreference);
   const effortPreferenceRef = useRef(effortPreference);
+  const defaultModelRef = useRef("");
+  const defaultEffortRef = useRef("");
   const activeThreadRef = useRef<string | null>(null);
   const boundThreadRef = useRef<string | null>(null);
   const pendingThreadTitle = useRef<string | null>(null);
@@ -492,9 +496,17 @@ export function CodexPanel({
   useEffect(() => {
     const catalog = modelsRef.current;
     if (!catalog.length) return;
-    const requested = modelPreference || modelRef.current;
-    if (!catalog.some((model) => modelValue(model) === requested)) return;
-    setModelSelection(requested, catalog, effortPreference, false);
+    const requested = modelPreference || defaultModelRef.current;
+    const resolved = catalog.find((model) => modelValue(model) === requested)
+      ?? catalog.find((model) => modelValue(model) === defaultModelRef.current)
+      ?? catalog[0];
+    if (!resolved) return;
+    setModelSelection(
+      modelValue(resolved),
+      catalog,
+      effortPreference || defaultEffortRef.current,
+      false,
+    );
   }, [effortPreference, modelPreference, models]);
 
   function setModelSelection(
@@ -527,8 +539,10 @@ export function CodexPanel({
   function applyCatalog(catalog: CodexModel[], defaults: { model?: unknown; effort?: unknown }) {
     modelsRef.current = catalog;
     setModels(catalog);
-    const requested = modelPreferenceRef.current || modelRef.current;
     const fallback = typeof defaults.model === "string" ? defaults.model : modelValue(catalog[0]);
+    defaultModelRef.current = fallback;
+    defaultEffortRef.current = typeof defaults.effort === "string" ? defaults.effort : "";
+    const requested = modelPreferenceRef.current || fallback;
     const model = catalog.find((item) => modelValue(item) === requested)
       ?? catalog.find((item) => modelValue(item) === fallback)
       ?? catalog[0];
@@ -540,8 +554,8 @@ export function CodexPanel({
       return;
     }
     const requestedEffort = effortPreferenceRef.current
-      || effortRef.current
-      || (typeof defaults.effort === "string" ? defaults.effort : null);
+      || defaultEffortRef.current
+      || null;
     setModelSelection(modelValue(model), catalog, requestedEffort, false);
   }
 

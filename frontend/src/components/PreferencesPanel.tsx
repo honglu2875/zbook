@@ -1,4 +1,9 @@
-import { useEffect, useRef } from "react";
+import {
+  useEffect,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import type {
   CodexEffort,
   PreferenceBackend,
@@ -13,7 +18,7 @@ interface PreferencesPanelProps {
   backend: PreferenceBackend | null;
   saveState: PreferenceSaveState;
   error: string | null;
-  onChange: (preferences: UserPreferences) => void;
+  onChange: Dispatch<SetStateAction<UserPreferences>>;
   onCreateFile: () => void;
   onReload: () => void;
   onCopyPath: () => void;
@@ -45,21 +50,30 @@ export function PreferencesPanel({
     key: Key,
     value: UserPreferences["editor"][Key],
   ) {
-    onChange({ ...preferences, editor: { ...preferences.editor, [key]: value } });
+    onChange((current) => ({
+      ...current,
+      editor: { ...current.editor, [key]: value },
+    }));
   }
 
   function updateNotebook<Key extends keyof UserPreferences["notebook"]>(
     key: Key,
     value: UserPreferences["notebook"][Key],
   ) {
-    onChange({ ...preferences, notebook: { ...preferences.notebook, [key]: value } });
+    onChange((current) => ({
+      ...current,
+      notebook: { ...current.notebook, [key]: value },
+    }));
   }
 
   function updateCodex<Key extends keyof UserPreferences["codex"]>(
     key: Key,
     value: UserPreferences["codex"][Key],
   ) {
-    onChange({ ...preferences, codex: { ...preferences.codex, [key]: value } });
+    onChange((current) => ({
+      ...current,
+      codex: { ...current.codex, [key]: value },
+    }));
   }
 
   const fileActive = backend?.source === "file";

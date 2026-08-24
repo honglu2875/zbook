@@ -73,6 +73,12 @@ export const HistoryIcon = (props: IconProps) => (
 export const SearchIcon = (props: IconProps) => (
   <Icon {...props}><circle cx="6.75" cy="6.75" r="4.5" /><path d="m10.25 10.25 3.5 3.5" /></Icon>
 );
+export const SettingsIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="8" cy="8" r="2.15" />
+    <path d="m6.65 2.3.4-1.05h1.9l.4 1.05 1.25.52 1.02-.46 1.34 1.34-.46 1.02.52 1.25 1.05.4v1.9l-1.05.4-.52 1.25.46 1.02-1.34 1.34-1.02-.46-1.25.52-.4 1.05h-1.9l-.4-1.05-1.25-.52-1.02.46-1.34-1.34.46-1.02-.52-1.25-1.05-.4v-1.9l1.05-.4.52-1.25-.46-1.02 1.34-1.34 1.02.46z" />
+  </Icon>
+);
 export const HeightIcon = (props: IconProps) => (
   <Icon {...props}><path d="M3 3h10M3 13h10M8 5v6M6.25 6.5 8 4.75 9.75 6.5M6.25 9.5 8 11.25 9.75 9.5" /></Icon>
 );

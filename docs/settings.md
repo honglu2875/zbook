@@ -1,6 +1,6 @@
 # User settings
 
-Zbook can keep durable personal preferences in an optional JSON file on the machine that runs the Zbook server. Open **Preferences** from the command palette (`Shift-Ctrl/Cmd-P`) or with `Ctrl/Cmd-,` to inspect the active storage source and create or reload the file.
+Zbook can keep durable personal preferences in an optional JSON file on the machine that runs the Zbook server. Use the cog in the top-right title bar, choose **Preferences** from the command palette (`Ctrl+Shift+P`), or press `Ctrl+,` to inspect the active storage source and create or reload the file. On macOS, use `Cmd` in place of `Ctrl`.
 
 The default host path is:
 
@@ -13,6 +13,8 @@ This is a host path, not necessarily a path on the browser's machine. That disti
 ## Resolution and persistence
 
 Zbook uses one durable source at a time; it never silently merges file and browser values for the same preference.
+
+The Preferences dialog and compact controls elsewhere in Zbook share one live preference state. Changing Vim bindings from the status bar or changing model and reasoning defaults from the Codex account panel updates the same values shown in Preferences; changes made in Preferences immediately update those controls and their consumers.
 
 1. A valid, readable settings file is authoritative.
 2. If the file is missing, unreadable, malformed, or uses an unsupported schema version, Zbook uses browser-local storage.

@@ -329,11 +329,22 @@ test("drags a Matplotlib Slider and redraws its live figure", async ({ page }) =
 
 test("creates and reloads durable host preferences", async ({ page, request }) => {
   await openNotebook(page, "core.ipynb");
-  await page.keyboard.press("Control+Comma");
+  const preferencesButton = page.getByRole("button", { name: "Open preferences" });
+  await expect(preferencesButton).toHaveAttribute("title", "Preferences (Ctrl+,)");
+  await preferencesButton.click();
 
   let dialog = page.getByRole("dialog", { name: "Preferences" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("Saved in this browser");
+
+  const vimStatus = page.locator(".status-vim-controls > button").first();
+  await dialog.getByRole("checkbox", { name: /Vim bindings/ }).check();
+  await dialog.getByRole("button", { name: "Close preferences" }).click();
+  await expect(vimStatus).toContainText("VIM");
+  await vimStatus.click();
+  await preferencesButton.click();
+  dialog = page.getByRole("dialog", { name: "Preferences" });
+  await expect(dialog.getByRole("checkbox", { name: /Vim bindings/ })).not.toBeChecked();
 
   await dialog.getByRole("spinbutton", { name: /Code font size/ }).fill("15.5");
   await dialog.getByRole("checkbox", { name: /Wrap long lines/ }).uncheck();

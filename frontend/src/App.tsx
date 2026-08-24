@@ -25,6 +25,7 @@ import {
   PlayIcon,
   PlusIcon,
   SearchIcon,
+  SettingsIcon,
   StopIcon,
 } from "./components/icons";
 import {
@@ -110,6 +111,7 @@ import {
   type PreferenceBackend,
   type UserPreferences,
 } from "./services/preferences";
+import { primaryShortcut } from "./services/shortcuts";
 import {
   loadCellProposals,
   removeCellProposal,
@@ -678,8 +680,7 @@ export default function App() {
     function handleGlobalKeys(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
-        setPreferencesOpen(true);
-        setPaletteMode(null);
+        openPreferences();
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
@@ -792,6 +793,14 @@ export default function App() {
         vim: typeof value === "function" ? value(current.editor.vim) : value,
       },
     }));
+  }
+
+  function openPreferences() {
+    setEnvironmentOpen(false);
+    setKernelMonitorOpen(false);
+    setVimKeymapOpen(false);
+    setPaletteMode(null);
+    setPreferencesOpen(true);
   }
 
   async function reloadPreferences() {
@@ -2988,6 +2997,10 @@ export default function App() {
     "--code-font-size": `${preferences.editor.codeFontSize}px`,
     "--output-max-height": `${preferences.notebook.outputMaxHeight}px`,
   } as CSSProperties;
+  const quickOpenShortcut = primaryShortcut("P");
+  const commandPaletteShortcut = primaryShortcut("P", { shift: true });
+  const saveShortcut = primaryShortcut("S");
+  const preferencesShortcut = primaryShortcut(",");
   const paletteCommands: PaletteCommand[] = [
     {
       id: "notebook.new",
@@ -3000,7 +3013,7 @@ export default function App() {
       id: "notebook.save",
       label: "Save notebook",
       detail: notebookPath ?? "No notebook open",
-      shortcut: "⌘S",
+      shortcut: saveShortcut,
       disabled: !notebookPath || saveState === "saving",
       run: () => void saveFromUser(),
     },
@@ -3064,14 +3077,14 @@ export default function App() {
       detail: preferenceBackend?.source === "file"
         ? `Settings from ${preferenceBackend.displayPath}`
         : "Editor, notebook, Codex, and storage settings",
-      shortcut: "⌘,",
-      run: () => setPreferencesOpen(true),
+      shortcut: preferencesShortcut,
+      run: openPreferences,
     },
     {
       id: "help.keys",
       label: "Show keyboard shortcuts",
       detail: "Notebook navigation and app commands",
-      run: () => setNotice("Keys: ⌘/Ctrl-P quick open · ⇧⌘/Ctrl-P commands · J/K select · A/O insert after · ⇧O insert before · C focus Codex · Escape step back · ⌘/Ctrl-S save"),
+      run: () => setNotice(`Keys: ${quickOpenShortcut} quick open · ${commandPaletteShortcut} commands · J/K select · A/O insert after · ⇧O insert before · C focus Codex · Escape step back · ${saveShortcut} save`),
     },
   ];
   return (
@@ -3086,13 +3099,21 @@ export default function App() {
         </div>
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => toggleSidePanel("left")} aria-label="Toggle files" aria-pressed={leftOpen}><PanelIcon /></button>
-          <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title="Quick open (Ctrl/Cmd-P)"><SearchIcon /></button>
+          <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title={`Quick open (${quickOpenShortcut})`}><SearchIcon /></button>
           {kernelState === "busy" ? (
             <button className="run-all" onClick={() => void interruptKernel()}><StopIcon />Interrupt</button>
           ) : (
             <button className="run-all" disabled={!notebookPath || notebookToolLocked || !status?.kernel.ready} onClick={() => void runAll()}><PlayIcon />Run all</button>
           )}
           <button className={rightOpen ? "is-active" : ""} onClick={() => toggleSidePanel("right")} aria-label="Toggle Codex" aria-pressed={rightOpen}><PanelRightIcon /></button>
+          <button
+            className={preferencesOpen ? "is-active" : ""}
+            type="button"
+            onClick={openPreferences}
+            aria-label="Open preferences"
+            aria-pressed={preferencesOpen}
+            title={`Preferences (${preferencesShortcut})`}
+          ><SettingsIcon /></button>
         </div>
       </header>
       {(leftOpen || rightOpen) && (
