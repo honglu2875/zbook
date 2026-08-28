@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KernelMetrics, KernelState } from "../services/kernel";
-import { CloseIcon, RefreshIcon, StopIcon } from "./icons";
+import { CloseIcon, PlayIcon, RefreshIcon, StopIcon } from "./icons";
 
 const SAMPLE_INTERVAL_MS = 2_000;
 const HISTORY_LIMIT = 45;
@@ -11,14 +11,31 @@ interface MetricHistory {
   cpu: number[];
 }
 
+export interface KernelQueueEntry {
+  cellId: string;
+  label: string;
+  position: number;
+}
+
+export interface KernelQueueView {
+  active: KernelQueueEntry | null;
+  pending: KernelQueueEntry[];
+  paused: boolean;
+}
+
 interface KernelMonitorProps {
   state: KernelState;
   notebookName: string;
   environmentName: string;
+  queue: KernelQueueView;
   restartDisabled: boolean;
   onSample: () => Promise<KernelMetrics | null>;
   onInterrupt: () => Promise<void>;
   onRestart: () => Promise<void>;
+  onRevealExecution: (cellId: string) => void;
+  onCancelQueuedFrom: (cellId: string) => void;
+  onClearPending: () => void;
+  onResumeQueue: () => void;
   onClose: () => void;
 }
 
@@ -80,10 +97,15 @@ export function KernelMonitor({
   state,
   notebookName,
   environmentName,
+  queue,
   restartDisabled,
   onSample,
   onInterrupt,
   onRestart,
+  onRevealExecution,
+  onCancelQueuedFrom,
+  onClearPending,
+  onResumeQueue,
   onClose,
 }: KernelMonitorProps) {
   const [metrics, setMetrics] = useState<KernelMetrics | null>(null);
@@ -170,6 +192,49 @@ export function KernelMonitor({
       ) : (
         <p className={detail ? "is-error" : ""}>{detail ?? (state === "disconnected" ? "Start the kernel to collect resource history." : "Waiting for the first sample…")}</p>
       )}
+      {(queue.active || queue.pending.length > 0) && (
+        <section className="kernel-execution-queue" aria-label="Execution queue">
+          <header>
+            <span>Execution queue</span>
+            <em>{queue.paused ? "paused" : queue.active ? "running" : "ready"}</em>
+          </header>
+          <div className="kernel-queue-list">
+            {queue.active && (
+              <button
+                type="button"
+                className="kernel-queue-row is-running"
+                onClick={() => onRevealExecution(queue.active!.cellId)}
+              >
+                <i aria-hidden="true" />
+                <strong>{queue.active.label}</strong>
+                <span>running</span>
+              </button>
+            )}
+            {queue.pending.map((item) => (
+              <div className="kernel-queue-row is-queued" key={item.cellId}>
+                <button type="button" onClick={() => onRevealExecution(item.cellId)}>
+                  <i>Q{item.position}</i>
+                  <strong>{item.label}</strong>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCancelQueuedFrom(item.cellId)}
+                  aria-label={`Cancel ${item.label} and all later queued runs`}
+                  title="Cancel this and later queued runs"
+                ><CloseIcon /></button>
+              </div>
+            ))}
+          </div>
+          <div className="kernel-queue-actions">
+            {queue.paused && queue.pending.length > 0 && (
+              <button type="button" onClick={onResumeQueue}><PlayIcon />Resume</button>
+            )}
+            {queue.pending.length > 0 && (
+              <button type="button" onClick={onClearPending}>Clear pending</button>
+            )}
+          </div>
+        </section>
+      )}
       <footer>
         <span>90 s · sampled while open</span>
         <div>
@@ -183,7 +248,7 @@ export function KernelMonitor({
           )}
           <button
             type="button"
-            disabled={restartDisabled || state === "busy" || state === "starting" || action !== null}
+            disabled={restartDisabled || state === "starting" || action !== null}
             onClick={() => void runAction("restart", onRestart)}
           ><RefreshIcon />{action === "restart" ? "Working…" : startLabel ? "Start" : "Restart"}</button>
         </div>

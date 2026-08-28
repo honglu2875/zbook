@@ -4,6 +4,16 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- A frontend-owned execution queue with visible cell positions, dependency-safe suffix cancellation, pause/resume after errors or interruption, and controls in the kernel monitor.
+- A top-bar kernel restart control with a compact confirmation that accounts for active and queued work.
+
+### Changed
+
+- Running cells now use a persistent spinner, warm rail, and subtle boundary treatment, while queued cells use quieter numbered indicators.
+- Code cells disable JetBrains Mono programming ligatures so repeated operators render character-for-character.
+
 ## [1.0.0rc2] - 2026-08-28
 
 ### Added

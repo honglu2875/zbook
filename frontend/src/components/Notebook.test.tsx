@@ -42,13 +42,23 @@ function proposal(state: CellProposalState, proposalKind: CellProposalKind = "so
   };
 }
 
-function renderProposal(
-  state: CellProposalState,
-  proposalKind: CellProposalKind = "source",
-  saveState: SaveState = "saved",
+function renderCell(
+  visibleCell: NotebookCell,
+  {
+    saveState = "saved",
+    lockedCellIds = [],
+    proposalActionsDisabled = false,
+    cellProposals = {},
+    queuePositions = {},
+  }: {
+    saveState?: SaveState;
+    lockedCellIds?: string[];
+    proposalActionsDisabled?: boolean;
+    cellProposals?: Record<string, CellProposal>;
+    queuePositions?: Record<string, number>;
+  } = {},
 ): string {
   const noop = () => undefined;
-  const visibleCell = proposalKind === "insert" ? { ...cell, source: "" } : cell;
   return renderToStaticMarkup(
     <Notebook
       path="analysis.ipynb"
@@ -61,18 +71,20 @@ function renderProposal(
       saveState={saveState}
       canRun
       locked={false}
-      lockedCellIds={state === "streaming" ? [cell.id] : []}
-      proposalActionsDisabled={state === "streaming"}
-      cellProposals={{ [cell.id]: proposal(state, proposalKind) }}
+      lockedCellIds={lockedCellIds}
+      proposalActionsDisabled={proposalActionsDisabled}
+      cellProposals={cellProposals}
       codexChangedCellIds={[]}
       codexUndoAvailable={false}
       cellViews={{}}
+      queuePositions={queuePositions}
       onSelect={noop}
       onEdit={noop}
       onChange={noop}
       onChangeKind={noop}
       onDelete={noop}
       onRun={noop}
+      onCancelQueuedFrom={noop}
       onAddAfter={noop}
       onReviewNextProposal={noop}
       onApplyProposal={noop}
@@ -89,6 +101,20 @@ function renderProposal(
       onQuoteSelection={noop}
     />,
   );
+}
+
+function renderProposal(
+  state: CellProposalState,
+  proposalKind: CellProposalKind = "source",
+  saveState: SaveState = "saved",
+): string {
+  const visibleCell = proposalKind === "insert" ? { ...cell, source: "" } : cell;
+  return renderCell(visibleCell, {
+    saveState,
+    lockedCellIds: state === "streaming" ? [cell.id] : [],
+    proposalActionsDisabled: state === "streaming",
+    cellProposals: { [cell.id]: proposal(state, proposalKind) },
+  });
 }
 
 describe("Notebook proposal review", () => {
@@ -130,6 +156,28 @@ describe("Notebook proposal review", () => {
     expect(markup).toContain("Changed on disk");
     expect(markup).toContain(">Resolve<");
     expect(markup).toContain("Resolve external changes");
+  });
+});
+
+describe("Notebook execution state", () => {
+  it("keeps the active cell visually and accessibly prominent", () => {
+    const markup = renderCell({ ...cell, state: "running" });
+
+    expect(markup).toContain("is-running");
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain("cell-run-spinner");
+    expect(markup).toContain("[…]");
+  });
+
+  it("shows queue position and suffix cancellation on pending cells", () => {
+    const markup = renderCell(
+      { ...cell, state: "queued" },
+      { queuePositions: { [cell.id]: 2 } },
+    );
+
+    expect(markup).toContain("is-queued");
+    expect(markup).toContain("Q2");
+    expect(markup).toContain("Cancel queued cell Q2 and all later queued cells");
   });
 });
 

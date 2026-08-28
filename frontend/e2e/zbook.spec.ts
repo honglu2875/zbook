@@ -35,6 +35,7 @@ test("monitors and restarts the active notebook kernel", async ({ page }) => {
   await openNotebook(page, "core.ipynb");
   const first = page.locator(".notebook-cell").first();
   await first.getByRole("button", { name: "Run cell" }).click();
+  await expect(page.getByRole("button", { name: "Restart kernel" })).toBeVisible();
 
   const status = page.getByRole("button", { name: /kernel: idle/i });
   await expect(status).toBeVisible();
@@ -54,10 +55,15 @@ test("monitors and restarts the active notebook kernel", async ({ page }) => {
     .toHaveText(/^(—|\d+\.\d%)$/);
   await expect(monitor.locator(".kernel-monitor-facts")).toContainText(/PID \d+/);
 
-  page.once("dialog", (dialog) => void dialog.accept());
   await monitor.getByRole("button", { name: "Restart" }).click();
+  const confirmation = page.getByRole("dialog", { name: "Confirm kernel restart" });
+  await expect(confirmation).toContainText("Variables will be cleared; notebook outputs remain");
+  await confirmation.getByRole("button", { name: "Restart" }).click();
   await expect(page.locator(".notice")).toContainText("Restarted the kernel for core.ipynb");
-  await expect(page.getByRole("button", { name: /kernel: idle/i })).toBeVisible();
+  const idleStatus = page.getByRole("button", { name: /kernel: idle/i });
+  await expect(idleStatus).toBeVisible();
+  await idleStatus.click();
+  await expect(monitor).toBeVisible();
 
   await page.setViewportSize({ width: 360, height: 760 });
   const narrowBounds = await monitor.boundingBox();
@@ -66,6 +72,69 @@ test("monitors and restarts the active notebook kernel", async ({ page }) => {
   expect(narrowBounds!.x + narrowBounds!.width).toBeLessThanOrEqual(361);
   await page.keyboard.press("Escape");
   await expect(monitor).toHaveCount(0);
+});
+
+test("queues cells locally, cancels a suffix, and pauses after errors", async ({ page }) => {
+  test.setTimeout(45_000);
+  await openNotebook(page, "queue.ipynb");
+  const first = page.locator(".notebook-cell").nth(0);
+  const second = page.locator(".notebook-cell").nth(1);
+  const third = page.locator(".notebook-cell").nth(2);
+
+  await first.getByRole("button", { name: "Run cell" }).click();
+  await expect(first).toHaveClass(/is-running/);
+  await expect(first.locator(".cell-run-spinner")).toBeVisible();
+
+  await second.getByRole("button", { name: "Run cell" }).click();
+  await third.getByRole("button", { name: "Run cell" }).click();
+  await expect(second).toHaveClass(/is-queued/);
+  await expect(second.locator(".execution-count")).toHaveText("Q1");
+  await expect(third.locator(".execution-count")).toHaveText("Q2");
+  await expect(page.getByRole("button", { name: /running · cell 1 · 2 queued/i })).toBeVisible();
+
+  await second.getByRole("button", { name: /Cancel queued cell Q1 and all later queued cells/ }).click();
+  await expect(second).not.toHaveClass(/is-queued/);
+  await expect(third).not.toHaveClass(/is-queued/);
+  await expect(first).toHaveClass(/is-running/);
+  await expect(first.locator(".cell-output")).toContainText("slow finished");
+
+  await second.getByRole("button", { name: "Run cell" }).click();
+  await third.getByRole("button", { name: "Run cell" }).click();
+  await expect(third.locator(".execution-count")).toHaveText("Q1");
+  await expect(second.locator(".cell-output")).toContainText("queue boom");
+  await expect(page.getByRole("button", { name: /queue paused · 1/i })).toBeVisible();
+
+  await page.getByRole("button", { name: /queue paused · 1/i }).click();
+  const monitor = page.getByRole("dialog", { name: "Active kernel monitor" });
+  await expect(monitor).toContainText("Execution queue");
+  await monitor.getByRole("button", { name: "Resume" }).click();
+  await expect(third.locator(".cell-output")).toContainText("queue resumed");
+  await expect(third).not.toHaveClass(/is-queued/);
+
+  await first.getByRole("button", { name: "Run cell" }).click();
+  await second.getByRole("button", { name: "Run cell" }).click();
+  await third.getByRole("button", { name: "Run cell" }).click();
+  await page.getByRole("button", { name: "Restart kernel" }).click();
+  const restart = page.getByRole("dialog", { name: "Confirm kernel restart" });
+  await expect(restart).toContainText("The running cell will stop");
+  await expect(restart).toContainText("2 queued runs will be cleared");
+  await restart.getByRole("button", { name: "Restart" }).click();
+  await expect(page.locator(".notice")).toContainText("Restarted the kernel for queue.ipynb");
+  await expect(page.locator(".notebook-cell.is-running, .notebook-cell.is-queued")).toHaveCount(0);
+});
+
+test("renders repeated operators without programming ligatures", async ({ page }) => {
+  await openNotebook(page, "core.ipynb");
+  await replaceCellSource(page, 0, "left === right");
+
+  const features = await page.locator(".notebook-cell").first().locator(".cm-content")
+    .evaluate((element) => ({
+      ligatures: getComputedStyle(element).fontVariantLigatures,
+      features: getComputedStyle(element).fontFeatureSettings,
+    }));
+  expect(features.ligatures).toBe("none");
+  expect(features.features).toContain('"liga" 0');
+  expect(features.features).toContain('"calt" 0');
 });
 
 test("keeps multiple tabs, renames a tab, and closes it", async ({ page }) => {
