@@ -71,6 +71,23 @@ interface NotebookProps {
   onQuoteSelection: (id: string, kind: CellKind, selection: CellTextSelection) => void;
 }
 
+const HTML_OUTPUT_THEME = `
+:root{color-scheme:dark}
+html,body{background:transparent}
+body{margin:0;color:#aeb3b7;font:13px/1.45 system-ui,sans-serif}
+pre{white-space:pre-wrap}
+:where(table.dataframe){border-collapse:collapse;border:1px solid #34383c;background:#1a1d1f;color:#c4c8cc;font-variant-numeric:tabular-nums}
+:where(table.dataframe) thead{background:#222528;color:#d8dade}
+:where(table.dataframe) tbody tr:nth-child(even){background:#1e2124}
+:where(table.dataframe) th,:where(table.dataframe) td{padding:5px 9px;border:1px solid #34383c}
+:where(table.dataframe) th{font-weight:600}
+:where(table.dataframe) tbody th{color:#9ca1a6;font-weight:500}
+`;
+
+export function htmlOutputDocument(data: string): string {
+  return `<!doctype html><meta name="color-scheme" content="dark"><style>${HTML_OUTPUT_THEME}</style>${data}`;
+}
+
 function ImageOutput({ text, data }: { text: string; data: string }) {
   const image = useRef<HTMLImageElement>(null);
   const [scaled, setScaled] = useState(false);
@@ -211,7 +228,7 @@ function RichOutput({ cellId, index, type, text, data, onRenderWidget }: {
         className="output-html"
         key={`${cellId}-${index}`}
         sandbox=""
-        srcDoc={`<!doctype html><style>body{margin:0;color:#aeb3b7;background:transparent;font:13px system-ui}pre{white-space:pre-wrap}</style>${data}`}
+        srcDoc={htmlOutputDocument(data)}
         title={`Rich output ${index + 1}`}
       />
     );
