@@ -4,11 +4,23 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.0rc2] - 2026-08-28
+
 ### Added
 
 - A compact active-kernel monitor with on-demand CPU and memory history, uptime, process statistics, and explicit interrupt or restart controls.
-- README positioning centered on native, structured Codex interaction with live notebook cells.
 - Compact Preferences UI with an optional validated `~/.zbook/settings.json`, browser fallback, atomic host-side writes, and documented schema and precedence rules.
+
+### Changed
+
+- README positioning now centers on native, structured Codex interaction with live notebook cells and explicitly selects the release candidate during installation.
+- The secondary navigation bar uses tighter vertical spacing across the workspace, notebook tabs, and Codex panel.
+- Browser CI retries only a failed journey once and retains short-lived diagnostics only when a failure occurs.
+
+### Fixed
+
+- Large workspace trees scroll within the file pane instead of overlapping the environment control.
+- Zbook renders over plain HTTP on remote interfaces such as Tailscale, where the secure-context-only `crypto.randomUUID()` API may be unavailable.
 
 ## [1.0.0rc1] - 2026-08-23
 
@@ -61,7 +73,8 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 - Initial PyPI release with the workspace tree, notebook editor, IPython execution, `uv` environment management, and Codex CLI panel.
 
-[Unreleased]: https://github.com/honglu2875/zbook/compare/v1.0.0rc1...HEAD
+[Unreleased]: https://github.com/honglu2875/zbook/compare/v1.0.0rc2...HEAD
+[1.0.0rc2]: https://github.com/honglu2875/zbook/compare/v1.0.0rc1...v1.0.0rc2
 [1.0.0rc1]: https://github.com/honglu2875/zbook/compare/v0.1.1...v1.0.0rc1
 [0.1.1]: https://github.com/honglu2875/zbook/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/honglu2875/zbook/releases/tag/v0.1.0
