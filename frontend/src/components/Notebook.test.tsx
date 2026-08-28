@@ -6,7 +6,7 @@ import type {
   CellProposalState,
 } from "../model/cellProposals";
 import type { NotebookCell } from "../model/notebook";
-import { Notebook, type SaveState } from "./Notebook";
+import { htmlOutputDocument, Notebook, type SaveState } from "./Notebook";
 
 const cell: NotebookCell = {
   id: "cell-1",
@@ -130,5 +130,19 @@ describe("Notebook proposal review", () => {
     expect(markup).toContain("Changed on disk");
     expect(markup).toContain(">Resolve<");
     expect(markup).toContain("Resolve external changes");
+  });
+});
+
+describe("HTML notebook output", () => {
+  it("gives pandas dataframes low-specificity dark-theme defaults", () => {
+    const data = '<table class="dataframe"><thead><tr><th>value</th></tr></thead></table>';
+    const document = htmlOutputDocument(data);
+
+    expect(document).toContain('<meta name="color-scheme" content="dark">');
+    expect(document).toContain(":where(table.dataframe)");
+    expect(document).toContain("background:#1a1d1f");
+    expect(document).toContain("tbody tr:nth-child(even)");
+    expect(document).toContain(data);
+    expect(document.indexOf("</style>")).toBeLessThan(document.indexOf(data));
   });
 });
