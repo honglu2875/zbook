@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { createUuid } from "../id";
 import type { NotebookCell } from "../model/notebook";
 import {
   selectionLineLabel,
@@ -139,7 +140,7 @@ const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 10_000] as const;
 
 function initialMessages(): Message[] {
   return [{
-    id: crypto.randomUUID(),
+    id: createUuid(),
     role: "assistant",
     text: "I can work in this workspace and edit the open notebook directly through Zbook's cell tools.",
     welcome: true,
@@ -561,7 +562,7 @@ export function CodexPanel({
 
   function addAssistantError(text: string) {
     setMessages((current) => [...current, {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       role: "assistant",
       text,
     }]);
@@ -600,7 +601,7 @@ export function CodexPanel({
     if (existing) return existing;
     let messageId = activeAssistant.current;
     if (!messageId) {
-      messageId = crypto.randomUUID();
+      messageId = createUuid();
       setMessages((current) => [...current, {
         id: messageId!,
         role: "assistant",
@@ -924,7 +925,7 @@ export function CodexPanel({
           if ((record.role !== "user" && record.role !== "assistant" && record.role !== "activity")
             || typeof record.text !== "string") return [];
           return [{
-            id: typeof record.id === "string" ? record.id : crypto.randomUUID(),
+            id: typeof record.id === "string" ? record.id : createUuid(),
             role: record.role,
             text: record.text,
           }];
@@ -1044,14 +1045,14 @@ export function CodexPanel({
       return;
     }
     callbacks.current.onTurnStarted();
-    const assistantId = crypto.randomUUID();
+    const assistantId = createUuid();
     if (!activeThreadRef.current) pendingThreadTitle.current = titleFromPrompt(clean);
     else upsertThread(activeThreadRef.current);
     activeAssistant.current = assistantId;
     agentMessages.current.clear();
     setMessages((current) => [
       ...current,
-      { id: crypto.randomUUID(), role: "user", text: clean },
+      { id: createUuid(), role: "user", text: clean },
       { id: assistantId, role: "assistant", text: "", pending: true },
     ]);
     setStage("Starting");

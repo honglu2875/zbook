@@ -212,6 +212,46 @@ test("keeps both side panels usable as narrow-screen drawers", async ({ page }) 
   await expect(codexPanel).toBeVisible();
 });
 
+test("keeps an overflowing file tree above the environment control", async ({ page }) => {
+  await page.setViewportSize({ width: 1_000, height: 260 });
+  await page.goto("./?token=zbook-playwright-token");
+
+  const tree = page.getByRole("navigation", { name: "File tree" });
+  const environment = page.locator(".environment-block");
+  await expect(tree).toBeVisible();
+  await expect(environment).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const treeElement = document.querySelector<HTMLElement>(".tree");
+    const environmentElement = document.querySelector<HTMLElement>(".environment-block");
+    if (!treeElement || !environmentElement) throw new Error("Workspace controls are missing");
+    return {
+      treeBottom: treeElement.getBoundingClientRect().bottom,
+      environmentTop: environmentElement.getBoundingClientRect().top,
+      treeClientHeight: treeElement.clientHeight,
+      treeScrollHeight: treeElement.scrollHeight,
+    };
+  });
+
+  expect(geometry.treeBottom).toBeLessThanOrEqual(geometry.environmentTop);
+  expect(geometry.treeScrollHeight).toBeGreaterThan(geometry.treeClientHeight);
+  await tree.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  expect(await tree.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+});
+
+test("starts when randomUUID is unavailable on a plain HTTP origin", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  await page.goto("./?token=zbook-playwright-token");
+  await expect(page.locator(".app-shell")).toBeVisible();
+  await expect(page.getByText("zbook", { exact: true })).toBeVisible();
+});
+
 test("keeps notebook chrome clear at very narrow widths", async ({ page }) => {
   await openNotebook(page, "core.ipynb");
   for (const label of ["Toggle files", "Toggle Codex"]) {

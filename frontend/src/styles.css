@@ -104,6 +104,9 @@ body.is-resizing-pane .app-shell { transition: none; }
 .file-panel {
   grid-area: files;
   position: relative;
+  display: grid;
+  grid-template-rows: var(--secondary-bar-height) 27px minmax(0, 1fr) auto;
+  min-height: 0;
   min-width: 0;
   overflow: hidden;
   background: var(--panel);
@@ -167,7 +170,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .workspace-name.is-active { background: #202326; color: #d0d2d4; }
 .workspace-chevron { width: 11px; height: 11px; color: #6f757b; transition: transform 80ms; }
 .workspace-chevron.is-open { transform: rotate(90deg); }
-.tree { max-height: calc(100% - 142px); overflow: auto; padding: 1px 0; scrollbar-color: #383c40 transparent; scrollbar-width: thin; }
+.tree { grid-row: 3; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 1px 0; scrollbar-color: #383c40 transparent; scrollbar-width: thin; }
 .tree-row-wrap { position: relative; display: flex; align-items: center; }
 .tree-row-wrap:hover { background: #222529; }
 .tree-row-wrap.is-active { background: #2b2e31; }
@@ -202,7 +205,7 @@ body.is-resizing-pane .app-shell { transition: none; }
 .tree-loading { width: 7px; height: 7px; margin-left: auto; border: 1px solid #747b81; border-right-color: transparent; border-radius: 50%; animation: spin 650ms linear infinite; }
 .tree-empty { padding: 7px 17px; color: #565c62; font-size: 10px; font-style: italic; }
 
-.environment-block { position: absolute; bottom: 25px; width: 100%; border-top: 1px solid var(--border); padding: 10px; }
+.environment-block { grid-row: 4; min-width: 0; border-top: 1px solid var(--border); padding: 10px; }
 .environment-label { display: block; margin: 0 0 7px 2px; color: #686e74; font-size: 9.5px; font-weight: 650; letter-spacing: .1em; }
 .environment-button {
   display: flex;
@@ -1051,7 +1054,7 @@ body.is-resizing-pane .app-shell { transition: none; }
     top: 38px;
     bottom: 24px;
     left: 0;
-    display: block;
+    display: grid;
     width: min(var(--left-pane-width, 226px), calc(100vw - 48px));
     border-right-color: #3a3e42;
     box-shadow: 18px 0 42px #0009;

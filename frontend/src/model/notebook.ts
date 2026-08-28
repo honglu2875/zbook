@@ -1,3 +1,5 @@
+import { createUuid } from "../id";
+
 export type CellKind = "code" | "markdown" | "raw";
 export type CellState = "idle" | "queued" | "running" | "error";
 
@@ -111,7 +113,7 @@ export function outputFromRaw(output: RawNotebookOutput): NotebookOutput {
 
 export function cellFromRaw(cell: RawNotebookCell): NotebookCell {
   return {
-    id: cell.id ?? crypto.randomUUID(),
+    id: cell.id ?? createUuid(),
     kind: cell.cell_type,
     source: asText(cell.source),
     metadata: cell.metadata ?? {},
@@ -123,7 +125,7 @@ export function cellFromRaw(cell: RawNotebookCell): NotebookCell {
 
 export function newCell(kind: CellKind, source = ""): NotebookCell {
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     kind,
     source,
     metadata: {},

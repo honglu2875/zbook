@@ -1,5 +1,6 @@
 import { Text } from "@codemirror/state";
 import { Chunk } from "@codemirror/merge";
+import { createUuid } from "../id";
 import type { CellKind, NotebookCell } from "./notebook";
 
 export type CellProposalState = "streaming" | "review" | "conflict";
@@ -194,7 +195,7 @@ export function createInsertionProposal(
   return {
     proposal: {
       notebookPath,
-      cellId: crypto.randomUUID(),
+      cellId: createUuid(),
       proposalKind: "insert",
       cellKind: requiredCellKind(argumentsValue.cellType),
       afterCellId,

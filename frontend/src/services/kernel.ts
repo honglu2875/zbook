@@ -1,4 +1,5 @@
 import type { Kernel, KernelMessage } from "@jupyterlab/services";
+import { createUuid } from "../id";
 import {
   outputFromRaw,
   richOutputFromKernel,
@@ -45,7 +46,7 @@ export interface KernelMetrics {
 export class KernelClient {
   private runtime: KernelRuntime | null = null;
   private kernelId: string | null = null;
-  private readonly sessionId = crypto.randomUUID();
+  private readonly sessionId = createUuid();
   private state: KernelState = "disconnected";
   private startPromise: Promise<void> | null = null;
 
