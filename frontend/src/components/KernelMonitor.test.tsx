@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { KernelMonitor, type KernelQueueView } from "./KernelMonitor";
 
-const emptyQueue: KernelQueueView = { active: null, pending: [], paused: false };
+const emptyQueue: KernelQueueView = { active: null, pending: [] };
 
 function render(
   state: "disconnected" | "idle" | "busy",
@@ -22,7 +22,6 @@ function render(
       onRevealExecution={() => undefined}
       onCancelQueuedFrom={() => undefined}
       onClearPending={() => undefined}
-      onResumeQueue={() => undefined}
       onClose={() => undefined}
     />,
   );
@@ -46,18 +45,16 @@ describe("KernelMonitor", () => {
     expect(markup).not.toMatch(/disabled=""[^>]*>.*Restart<\/button>/);
   });
 
-  it("shows active and paused pending executions with suffix cancellation", () => {
+  it("shows active and pending executions with suffix cancellation", () => {
     const markup = render("idle", false, {
       active: { cellId: "a", label: "Cell 2", position: 0 },
       pending: [{ cellId: "b", label: "Cell 3", position: 1 }],
-      paused: true,
     });
 
     expect(markup).toContain("Execution queue");
     expect(markup).toContain("Cell 2");
     expect(markup).toContain("Q1");
     expect(markup).toContain("Cancel Cell 3 and all later queued runs");
-    expect(markup).toContain("Resume");
     expect(markup).toContain("Clear pending");
   });
 });

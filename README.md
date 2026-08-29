@@ -52,7 +52,7 @@ to miss. The Codex panel is also there with history and account details.
 - Native Codex cell tools (cell- and line-based reading/editing/).
 - Reviewable Codex edits: streamed red/green proposals stay staged until approved/rejected.
 - A compact React and CodeMirror notebook editor with Python highlighting, Markdown rendering, `#@title` cell headings, and optional Vim bindings.
-- A controllable local execution queue with visible running/queued cells, suffix cancellation, and pause-on-error recovery.
+- A controllable local execution queue with visible running/queued cells, suffix cancellation, and automatic cleanup after errors.
 - A workspace-scoped file tree with create, rename, upload, delete, refresh, and external-change protection.
 - IPython kernels and Jupyter Server backend.
 - Live package installation and removal without coupling the notebook environment to Zbook's own runtime.
@@ -143,7 +143,7 @@ Navigation mode keeps common work off the mouse:
 
 Vim bindings are opt-in from the lower-left status bar. With Vim enabled, the editor has three layers: cell navigation, Vim normal, and Vim insert. `Escape` steps back one layer at a time.
 
-Running another cell while the kernel is occupied adds it to Zbook's local queue rather than sending an opaque request into IPython. Pending cells show `Q1`, `Q2`, and so on. Cancelling a pending cell removes it and every later queued run without interrupting the active cell; errors and manual interruption pause the remaining queue for explicit Resume or Clear actions in the kernel monitor.
+Running another cell while the kernel is occupied adds it to Zbook's local queue rather than sending an opaque request into IPython. Pending cells show `Q1`, `Q2`, and so on. Cancelling a pending cell removes it and every later queued run without interrupting the active cell. If an execution fails or is interrupted, Zbook cancels all subsequent queued runs automatically; the lower-right kernel monitor provides a compact inspection view and a Clear pending action while work is waiting.
 
 Durable editor, notebook, and Codex defaults can use an optional host-side `~/.zbook/settings.json`; without it, Zbook uses browser-local storage. Open Preferences from the top-right cog. The file is never created or repaired silently. See the [user settings schema and storage rules](docs/settings.md).
 

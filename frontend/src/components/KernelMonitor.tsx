@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KernelMetrics, KernelState } from "../services/kernel";
-import { CloseIcon, PlayIcon, RefreshIcon, StopIcon } from "./icons";
+import { CloseIcon, RefreshIcon, StopIcon } from "./icons";
 
 const SAMPLE_INTERVAL_MS = 2_000;
 const HISTORY_LIMIT = 45;
@@ -20,7 +20,6 @@ export interface KernelQueueEntry {
 export interface KernelQueueView {
   active: KernelQueueEntry | null;
   pending: KernelQueueEntry[];
-  paused: boolean;
 }
 
 interface KernelMonitorProps {
@@ -35,7 +34,6 @@ interface KernelMonitorProps {
   onRevealExecution: (cellId: string) => void;
   onCancelQueuedFrom: (cellId: string) => void;
   onClearPending: () => void;
-  onResumeQueue: () => void;
   onClose: () => void;
 }
 
@@ -105,7 +103,6 @@ export function KernelMonitor({
   onRevealExecution,
   onCancelQueuedFrom,
   onClearPending,
-  onResumeQueue,
   onClose,
 }: KernelMonitorProps) {
   const [metrics, setMetrics] = useState<KernelMetrics | null>(null);
@@ -196,7 +193,7 @@ export function KernelMonitor({
         <section className="kernel-execution-queue" aria-label="Execution queue">
           <header>
             <span>Execution queue</span>
-            <em>{queue.paused ? "paused" : queue.active ? "running" : "ready"}</em>
+            <em>{queue.active ? "running" : "waiting"}</em>
           </header>
           <div className="kernel-queue-list">
             {queue.active && (
@@ -226,9 +223,6 @@ export function KernelMonitor({
             ))}
           </div>
           <div className="kernel-queue-actions">
-            {queue.paused && queue.pending.length > 0 && (
-              <button type="button" onClick={onResumeQueue}><PlayIcon />Resume</button>
-            )}
             {queue.pending.length > 0 && (
               <button type="button" onClick={onClearPending}>Clear pending</button>
             )}

@@ -8,8 +8,7 @@ import {
   emptyExecutionQueue,
   enqueueExecution,
   executionPosition,
-  pauseExecutionQueue,
-  resumeExecutionQueue,
+  failActiveExecution,
 } from "./executionQueue";
 
 function queued(...cellIds: string[]) {
@@ -38,26 +37,20 @@ describe("execution queue", () => {
     expect(result.queue.pending.map((item) => item.cellId)).toEqual(["b"]);
   });
 
-  it("pauses remaining work after completion and resumes explicitly", () => {
-    let queue = activateNextExecution(queued("a", "b"));
-    queue = completeActiveExecution(queue, true);
+  it("cancels all remaining work when the active execution fails", () => {
+    const queue = activateNextExecution(queued("a", "b", "c"));
+    const failed = failActiveExecution(queue);
 
-    expect(queue.paused).toBe(true);
-    expect(activateNextExecution(queue).active).toBeNull();
-
-    queue = activateNextExecution(resumeExecutionQueue(queue));
-    expect(queue.active?.cellId).toBe("b");
-    expect(queue.paused).toBe(false);
+    expect(failed.cancelledCellIds).toEqual(["b", "c"]);
+    expect(failed.queue).toEqual(emptyExecutionQueue());
   });
 
-  it("retains an interrupt pause requested before more work is queued", () => {
-    let queue = activateNextExecution(queued("a"));
-    queue = pauseExecutionQueue(queue);
-    queue = enqueueExecution(queue, "b").queue;
-    queue = completeActiveExecution(queue);
+  it("advances normally after a successful execution", () => {
+    let queue = activateNextExecution(queued("a", "b"));
+    queue = activateNextExecution(completeActiveExecution(queue));
 
-    expect(queue.paused).toBe(true);
-    expect(queue.pending.map((item) => item.cellId)).toEqual(["b"]);
+    expect(queue.active?.cellId).toBe("b");
+    expect(queue.pending).toEqual([]);
   });
 
   it("clears pending work separately from cancelling the active execution", () => {

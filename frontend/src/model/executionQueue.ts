@@ -5,7 +5,6 @@ export interface ExecutionQueueItem {
 export interface ExecutionQueueState {
   active: ExecutionQueueItem | null;
   pending: ExecutionQueueItem[];
-  paused: boolean;
 }
 
 export interface EnqueueResult {
@@ -20,7 +19,7 @@ export interface CancelResult {
 }
 
 export function emptyExecutionQueue(): ExecutionQueueState {
-  return { active: null, pending: [], paused: false };
+  return { active: null, pending: [] };
 }
 
 export function executionPosition(queue: ExecutionQueueState, cellId: string): number | null {
@@ -43,25 +42,20 @@ export function enqueueExecution(queue: ExecutionQueueState, cellId: string): En
 }
 
 export function activateNextExecution(queue: ExecutionQueueState): ExecutionQueueState {
-  if (queue.active || queue.paused || queue.pending.length === 0) return queue;
+  if (queue.active || queue.pending.length === 0) return queue;
   const [active, ...pending] = queue.pending;
-  return { active, pending, paused: false };
+  return { active, pending };
 }
 
-export function completeActiveExecution(
-  queue: ExecutionQueueState,
-  pauseRemaining = false,
-): ExecutionQueueState {
-  const paused = queue.pending.length > 0 && (queue.paused || pauseRemaining);
-  return { active: null, pending: queue.pending, paused };
+export function completeActiveExecution(queue: ExecutionQueueState): ExecutionQueueState {
+  return { active: null, pending: queue.pending };
 }
 
-export function pauseExecutionQueue(queue: ExecutionQueueState): ExecutionQueueState {
-  return queue.paused ? queue : { ...queue, paused: true };
-}
-
-export function resumeExecutionQueue(queue: ExecutionQueueState): ExecutionQueueState {
-  return queue.paused ? { ...queue, paused: false } : queue;
+export function failActiveExecution(queue: ExecutionQueueState): CancelResult {
+  return {
+    queue: emptyExecutionQueue(),
+    cancelledCellIds: queue.pending.map((item) => item.cellId),
+  };
 }
 
 export function cancelQueuedFrom(queue: ExecutionQueueState, cellId: string): CancelResult {
@@ -70,11 +64,7 @@ export function cancelQueuedFrom(queue: ExecutionQueueState, cellId: string): Ca
   const cancelledCellIds = queue.pending.slice(index).map((item) => item.cellId);
   const pending = queue.pending.slice(0, index);
   return {
-    queue: {
-      ...queue,
-      pending,
-      paused: pending.length > 0 && queue.paused,
-    },
+    queue: { ...queue, pending },
     cancelledCellIds,
   };
 }
@@ -82,7 +72,7 @@ export function cancelQueuedFrom(queue: ExecutionQueueState, cellId: string): Ca
 export function clearPendingExecutions(queue: ExecutionQueueState): CancelResult {
   if (queue.pending.length === 0) return { queue, cancelledCellIds: [] };
   return {
-    queue: { ...queue, pending: [], paused: false },
+    queue: { ...queue, pending: [] },
     cancelledCellIds: queue.pending.map((item) => item.cellId),
   };
 }

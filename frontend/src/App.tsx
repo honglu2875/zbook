@@ -52,8 +52,7 @@ import {
   emptyExecutionQueue,
   enqueueExecution,
   executionPosition,
-  pauseExecutionQueue,
-  resumeExecutionQueue,
+  failActiveExecution,
   type ExecutionQueueState,
 } from "./model/executionQueue";
 import {
@@ -669,13 +668,12 @@ export default function App() {
   useEffect(() => {
     if (
       executionQueue.active
-      || executionQueue.paused
       || executionQueue.pending.length === 0
       || kernelState === "busy"
       || kernelState === "starting"
     ) return;
     void pumpExecutionQueue();
-  }, [executionQueue.active, executionQueue.paused, executionQueue.pending.length, kernelState]);
+  }, [executionQueue.active, executionQueue.pending.length, kernelState]);
 
   useEffect(() => () => {
     executionGenerationRef.current += 1;
@@ -1453,7 +1451,7 @@ export default function App() {
       return;
     }
     if (executionQueueRef.current.pending.length > 0) {
-      setNotice("Resume or clear the pending execution queue before reloading this notebook.");
+      setNotice("Finish or clear the pending execution queue before reloading this notebook.");
       return;
     }
     if (codexLockedCellIds(path).length) {
@@ -1669,8 +1667,8 @@ export default function App() {
     if (activeKernel === "busy" || activeKernel === "starting") {
       return { success: false, result: { error: "Wait for the running cell to finish before locking or editing it." } };
     }
-    if (executionQueueRef.current.pending.length > 0 || executionQueueRef.current.paused) {
-      return { success: false, result: { error: "Resume or clear the pending execution queue before locking or editing cells." } };
+    if (executionQueueRef.current.pending.length > 0) {
+      return { success: false, result: { error: "Finish or clear the pending execution queue before locking or editing cells." } };
     }
     if (typeof args.notebookPath !== "string" || args.notebookPath !== current.notebookPath) {
       return {
@@ -2115,7 +2113,7 @@ export default function App() {
       return true;
     }
     if (queue.pending.length > 0) {
-      setNotice("Resume or clear the pending execution queue before switching notebooks.");
+      setNotice("Finish or clear the pending execution queue before switching notebooks.");
       return true;
     }
     return false;
@@ -2918,13 +2916,6 @@ export default function App() {
     setNotice(`Cleared ${result.cancelledCellIds.length} pending run${result.cancelledCellIds.length === 1 ? "" : "s"}.${result.queue.active ? " The running cell was not interrupted." : ""}`);
   }
 
-  function resumePendingQueue() {
-    const next = replaceExecutionQueue(resumeExecutionQueue);
-    if (!next.pending.length) return;
-    setNotice(`Resumed ${next.pending.length} queued run${next.pending.length === 1 ? "" : "s"}.`);
-    void pumpExecutionQueue();
-  }
-
   async function pumpExecutionQueue() {
     if (executionPumpGenerationRef.current !== null) return;
     const path = documentRef.current.notebookPath;
@@ -2939,13 +2930,14 @@ export default function App() {
     const generation = executionGenerationRef.current;
     executionPumpGenerationRef.current = generation;
     let failed = false;
+    let failureMessage: string | null = null;
 
     try {
       const cell = documentRef.current.cells.find((candidate) => candidate.id === item.cellId);
       if (!cell || cell.kind !== "code") {
         failed = true;
         resetExecutionCells([item.cellId]);
-        setNotice("A queued cell no longer exists as code, so the remaining queue was paused.");
+        failureMessage = "A queued cell no longer exists as code.";
         return;
       }
 
@@ -2962,7 +2954,8 @@ export default function App() {
       const currentCell = documentRef.current.cells.find((candidate) => candidate.id === item.cellId);
       if (!currentCell || currentCell.kind !== "code") {
         failed = true;
-        setNotice("The running cell changed type before execution, so the remaining queue was paused.");
+        resetExecutionCells([item.cellId]);
+        failureMessage = "The running cell changed type before execution.";
         return;
       }
 
@@ -2971,6 +2964,7 @@ export default function App() {
       });
       if (generation !== executionGenerationRef.current) return;
       failed = result.outputs.some((output) => output.type === "error");
+      if (failed) failureMessage = "Execution stopped with an error.";
       applyExecution(item.cellId, result, failed ? "error" : "idle");
       markDirty();
     } catch (error) {
@@ -2978,7 +2972,7 @@ export default function App() {
       failed = true;
       replaceExecutionCells((cell) => ({ ...cell, state: "error" }), [item.cellId]);
       markDirty();
-      setNotice(`Kernel execution failed: ${String(error)}`);
+      failureMessage = `Kernel execution failed: ${String(error)}`;
     } finally {
       if (generation !== executionGenerationRef.current) {
         if (executionPumpGenerationRef.current === generation) {
@@ -2988,16 +2982,22 @@ export default function App() {
       }
       const current = executionQueueRef.current;
       if (current.active?.cellId === item.cellId) {
-        const next = completeActiveExecution(current, failed);
-        replaceExecutionQueue(() => next);
-        if (failed && next.pending.length > 0) {
-          setNotice(`Execution stopped with an error. ${next.pending.length} queued run${next.pending.length === 1 ? " is" : "s are"} paused.`);
+        if (failed) {
+          const cancelled = failActiveExecution(current);
+          replaceExecutionQueue(() => cancelled.queue);
+          resetExecutionCells(cancelled.cancelledCellIds);
+          const suffix = cancelled.cancelledCellIds.length > 0
+            ? ` Cancelled ${cancelled.cancelledCellIds.length} subsequent queued run${cancelled.cancelledCellIds.length === 1 ? "" : "s"}.`
+            : "";
+          setNotice(`${failureMessage ?? "Execution stopped with an error."}${suffix}`);
+        } else {
+          replaceExecutionQueue(() => completeActiveExecution(current));
         }
       }
       if (executionPumpGenerationRef.current === generation) {
         executionPumpGenerationRef.current = null;
       }
-      if (!executionQueueRef.current.paused && executionQueueRef.current.pending.length > 0) {
+      if (executionQueueRef.current.pending.length > 0) {
         void pumpExecutionQueue();
       }
     }
@@ -3053,9 +3053,6 @@ export default function App() {
     replaceExecutionQueue(() => queued.queue);
     replaceExecutionCells((item) => ({ ...item, state: "queued" }), [id]);
     if (advance) advanceAfterRun(id, insert);
-    if (queued.queue.paused) {
-      setNotice(`Added the cell to the paused queue at Q${queued.position}.`);
-    }
     void pumpExecutionQueue();
     return true;
   }
@@ -3075,14 +3072,14 @@ export default function App() {
     try {
       const path = documentRef.current.notebookPath;
       if (!path) return;
-      if (executionQueueRef.current.active || executionQueueRef.current.pending.length > 0) {
-        replaceExecutionQueue(pauseExecutionQueue);
-      }
+      const cancelled = clearPendingExecutions(executionQueueRef.current);
+      replaceExecutionQueue(() => cancelled.queue);
+      resetExecutionCells(cancelled.cancelledCellIds);
       await kernelPool.client(path).interrupt();
-      const pending = executionQueueRef.current.pending.length;
-      if (pending > 0) {
-        setNotice(`Interrupt requested. ${pending} queued run${pending === 1 ? " is" : "s are"} paused.`);
-      }
+      const suffix = cancelled.cancelledCellIds.length > 0
+        ? ` Cancelled ${cancelled.cancelledCellIds.length} subsequent queued run${cancelled.cancelledCellIds.length === 1 ? "" : "s"}.`
+        : "";
+      setNotice(`Interrupt requested.${suffix}`);
     } catch (error) {
       setNotice(`Could not interrupt the kernel: ${String(error)}`);
     }
@@ -3237,18 +3234,11 @@ export default function App() {
       label: executionCellLabel(item.cellId),
       position: index + 1,
     })),
-    paused: executionQueue.paused,
   };
-  const kernelStatusPresentationState = executionQueue.active
-    ? "busy"
-    : executionQueue.paused && executionQueue.pending.length > 0
-      ? "paused"
-      : kernelState;
+  const kernelStatusPresentationState = executionQueue.active ? "busy" : kernelState;
   const kernelStatusLabel = executionQueue.active
     ? `running · ${executionCellLabel(executionQueue.active.cellId).toLowerCase()}${executionQueue.pending.length ? ` · ${executionQueue.pending.length} queued` : ""}`
-    : executionQueue.paused && executionQueue.pending.length > 0
-      ? `queue paused · ${executionQueue.pending.length}`
-      : `kernel: ${kernelState}`;
+    : `kernel: ${kernelState}${executionQueue.pending.length ? ` · ${executionQueue.pending.length} queued` : ""}`;
   const visibleSelectedCell = visibleCells.find((cell) => cell.id === selectedId) ?? null;
   const selectedCellForCodex = visibleSelectedCell && activeCellProposals[visibleSelectedCell.id]
     ? { ...visibleSelectedCell, source: activeCellProposals[visibleSelectedCell.id].draftSource }
@@ -3748,7 +3738,6 @@ export default function App() {
               onRevealExecution={revealExecutionCell}
               onCancelQueuedFrom={cancelExecutionFrom}
               onClearPending={clearPendingQueue}
-              onResumeQueue={resumePendingQueue}
               onClose={() => setKernelMonitorOpen(false)}
             />
           )}

@@ -30,6 +30,22 @@ test("opens, edits, executes, saves, and reloads a real notebook", async ({ page
   await expect(page.locator(".notebook-cell").first().locator(".cell-output")).toContainText("42");
 });
 
+test("keeps cell controls clear of the first source line", async ({ page }) => {
+  await openNotebook(page, "core.ipynb");
+  const cell = page.locator(".notebook-cell").first();
+  await cell.hover();
+
+  const actions = cell.locator(".cell-actions");
+  await expect(actions).toBeVisible();
+  const [actionBounds, firstLineBounds] = await Promise.all([
+    actions.boundingBox(),
+    cell.locator(".cm-line").first().boundingBox(),
+  ]);
+  expect(actionBounds).not.toBeNull();
+  expect(firstLineBounds).not.toBeNull();
+  expect(actionBounds!.y + actionBounds!.height).toBeLessThanOrEqual(firstLineBounds!.y);
+});
+
 test("monitors and restarts the active notebook kernel", async ({ page }) => {
   test.setTimeout(45_000);
   await openNotebook(page, "core.ipynb");
@@ -74,7 +90,7 @@ test("monitors and restarts the active notebook kernel", async ({ page }) => {
   await expect(monitor).toHaveCount(0);
 });
 
-test("queues cells locally, cancels a suffix, and pauses after errors", async ({ page }) => {
+test("queues cells locally and cancels subsequent work after errors", async ({ page }) => {
   test.setTimeout(45_000);
   await openNotebook(page, "queue.ipynb");
   const first = page.locator(".notebook-cell").nth(0);
@@ -102,14 +118,11 @@ test("queues cells locally, cancels a suffix, and pauses after errors", async ({
   await third.getByRole("button", { name: "Run cell" }).click();
   await expect(third.locator(".execution-count")).toHaveText("Q1");
   await expect(second.locator(".cell-output")).toContainText("queue boom");
-  await expect(page.getByRole("button", { name: /queue paused · 1/i })).toBeVisible();
-
-  await page.getByRole("button", { name: /queue paused · 1/i }).click();
-  const monitor = page.getByRole("dialog", { name: "Active kernel monitor" });
-  await expect(monitor).toContainText("Execution queue");
-  await monitor.getByRole("button", { name: "Resume" }).click();
-  await expect(third.locator(".cell-output")).toContainText("queue resumed");
+  await expect(page.locator(".notice")).toContainText("Cancelled 1 subsequent queued run");
   await expect(third).not.toHaveClass(/is-queued/);
+  await page.waitForTimeout(600);
+  await expect(third.locator(".cell-output")).toHaveCount(0);
+  await expect(third.locator(".execution-count")).toHaveText("[ ]");
 
   await first.getByRole("button", { name: "Run cell" }).click();
   await second.getByRole("button", { name: "Run cell" }).click();
