@@ -64,7 +64,7 @@ A complete version 1 document looks like this:
 | `editor.tabSize` | integer, `2`–`8` | `4` | Tab and indentation width. |
 | `editor.lineWrapping` | boolean | `true` | Wrap long source lines within the cell editor. |
 | `notebook.outputMaxHeight` | integer, `160`–`1000` | `280` | Height in CSS pixels for an output placed in limited-height mode. |
-| `notebook.confirmKernelRestart` | boolean | `true` | Confirm before restarting an idle, active notebook kernel. |
+| `notebook.confirmKernelRestart` | boolean | `true` | Confirm before replacing an existing notebook kernel; the prompt reports running and queued work that will be cleared. |
 | `codex.model` | string, at most 200 characters | `""` | Codex model identifier. Empty means Zbook's current default, presently Luna when available. An unavailable identifier falls back in the live model picker. |
 | `codex.effort` | `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, or `"xhigh"` | `"medium"` | Preferred reasoning effort when supported by the selected model. |
 

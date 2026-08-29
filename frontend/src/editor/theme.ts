@@ -29,6 +29,8 @@ export const zbookTheme = [
       ".cm-content": {
         caretColor: "#e9c77e",
         fontFamily: "var(--font-mono)",
+        fontVariantLigatures: "none",
+        fontFeatureSettings: '"liga" 0, "calt" 0',
         lineHeight: "1.65",
         padding: "13px 0 14px",
       },

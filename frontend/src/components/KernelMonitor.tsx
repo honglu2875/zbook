@@ -11,14 +11,29 @@ interface MetricHistory {
   cpu: number[];
 }
 
+export interface KernelQueueEntry {
+  cellId: string;
+  label: string;
+  position: number;
+}
+
+export interface KernelQueueView {
+  active: KernelQueueEntry | null;
+  pending: KernelQueueEntry[];
+}
+
 interface KernelMonitorProps {
   state: KernelState;
   notebookName: string;
   environmentName: string;
+  queue: KernelQueueView;
   restartDisabled: boolean;
   onSample: () => Promise<KernelMetrics | null>;
   onInterrupt: () => Promise<void>;
   onRestart: () => Promise<void>;
+  onRevealExecution: (cellId: string) => void;
+  onCancelQueuedFrom: (cellId: string) => void;
+  onClearPending: () => void;
   onClose: () => void;
 }
 
@@ -80,10 +95,14 @@ export function KernelMonitor({
   state,
   notebookName,
   environmentName,
+  queue,
   restartDisabled,
   onSample,
   onInterrupt,
   onRestart,
+  onRevealExecution,
+  onCancelQueuedFrom,
+  onClearPending,
   onClose,
 }: KernelMonitorProps) {
   const [metrics, setMetrics] = useState<KernelMetrics | null>(null);
@@ -170,6 +189,46 @@ export function KernelMonitor({
       ) : (
         <p className={detail ? "is-error" : ""}>{detail ?? (state === "disconnected" ? "Start the kernel to collect resource history." : "Waiting for the first sample…")}</p>
       )}
+      {(queue.active || queue.pending.length > 0) && (
+        <section className="kernel-execution-queue" aria-label="Execution queue">
+          <header>
+            <span>Execution queue</span>
+            <em>{queue.active ? "running" : "waiting"}</em>
+          </header>
+          <div className="kernel-queue-list">
+            {queue.active && (
+              <button
+                type="button"
+                className="kernel-queue-row is-running"
+                onClick={() => onRevealExecution(queue.active!.cellId)}
+              >
+                <i aria-hidden="true" />
+                <strong>{queue.active.label}</strong>
+                <span>running</span>
+              </button>
+            )}
+            {queue.pending.map((item) => (
+              <div className="kernel-queue-row is-queued" key={item.cellId}>
+                <button type="button" onClick={() => onRevealExecution(item.cellId)}>
+                  <i>Q{item.position}</i>
+                  <strong>{item.label}</strong>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCancelQueuedFrom(item.cellId)}
+                  aria-label={`Cancel ${item.label} and all later queued runs`}
+                  title="Cancel this and later queued runs"
+                ><CloseIcon /></button>
+              </div>
+            ))}
+          </div>
+          <div className="kernel-queue-actions">
+            {queue.pending.length > 0 && (
+              <button type="button" onClick={onClearPending}>Clear pending</button>
+            )}
+          </div>
+        </section>
+      )}
       <footer>
         <span>90 s · sampled while open</span>
         <div>
@@ -183,7 +242,7 @@ export function KernelMonitor({
           )}
           <button
             type="button"
-            disabled={restartDisabled || state === "busy" || state === "starting" || action !== null}
+            disabled={restartDisabled || state === "starting" || action !== null}
             onClick={() => void runAction("restart", onRestart)}
           ><RefreshIcon />{action === "restart" ? "Working…" : startLabel ? "Start" : "Restart"}</button>
         </div>

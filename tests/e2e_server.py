@@ -75,6 +75,19 @@ def seed_workspace(workspace: Path) -> None:
             ("markdown-second", "code", "print('next cell')"),
         ),
         "conflict.ipynb": notebook(("conflict-cell", "code", "original_value = 1")),
+        "queue.ipynb": notebook(
+            (
+                "queue-slow",
+                "code",
+                "import time\ntime.sleep(1.5)\nprint('slow finished')",
+            ),
+            (
+                "queue-error",
+                "code",
+                "import time\ntime.sleep(0.4)\nraise RuntimeError('queue boom')",
+            ),
+            ("queue-final", "code", "print('queue resumed')"),
+        ),
         "image.ipynb": image_output,
         "widgets.ipynb": notebook(
             (

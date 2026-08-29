@@ -52,6 +52,7 @@ to miss. The Codex panel is also there with history and account details.
 - Native Codex cell tools (cell- and line-based reading/editing/).
 - Reviewable Codex edits: streamed red/green proposals stay staged until approved/rejected.
 - A compact React and CodeMirror notebook editor with Python highlighting, Markdown rendering, `#@title` cell headings, and optional Vim bindings.
+- A controllable local execution queue with visible running/queued cells, suffix cancellation, and automatic cleanup after errors.
 - A workspace-scoped file tree with create, rename, upload, delete, refresh, and external-change protection.
 - IPython kernels and Jupyter Server backend.
 - Live package installation and removal without coupling the notebook environment to Zbook's own runtime.
@@ -115,7 +116,7 @@ zbook run -- --ZbookApp.venv=/path/to/project/.venv
 
 The environment control at the bottom of the workspace pane can switch among detected `uv` environments, accept a path, and install or uninstall packages live. Each notebook owns its kernel, so changing tabs does not accidentally reuse another notebook's execution state.
 
-The kernel-state chip at the lower right opens the active notebook's lightweight monitor. It reports state, uptime, process count, current memory and host-normalized CPU use, keeps two 90-second sparklines while open, and provides explicit Interrupt or Restart controls. Sampling stops with the popover and never executes hidden code in the notebook kernel.
+The kernel-state chip at the lower right opens the active notebook's lightweight monitor. It reports state, uptime, process count, current memory and host-normalized CPU use, keeps two 90-second sparklines while open, and provides explicit execution-queue, Interrupt, or Restart controls. A compact Restart button also sits beside Run All in the top bar. Sampling stops with the popover and never executes hidden code in the notebook kernel.
 
 Interactive controls use the standard Jupyter widget protocol. Core `ipywidgets` controls work when `ipywidgets` is installed in the selected environment. For a draggable Matplotlib figure or `matplotlib.widgets.Slider`, install `ipympl` in that environment and select the widget backend before creating the figure:
 
@@ -141,6 +142,8 @@ Navigation mode keeps common work off the mouse:
 - `Ctrl+P` opens files; `Ctrl+Shift+P` opens app commands; `Ctrl+S` saves. On macOS, use `Cmd` in place of `Ctrl`.
 
 Vim bindings are opt-in from the lower-left status bar. With Vim enabled, the editor has three layers: cell navigation, Vim normal, and Vim insert. `Escape` steps back one layer at a time.
+
+Running another cell while the kernel is occupied adds it to Zbook's local queue rather than sending an opaque request into IPython. Pending cells show `Q1`, `Q2`, and so on. Cancelling a pending cell removes it and every later queued run without interrupting the active cell. If an execution fails or is interrupted, Zbook cancels all subsequent queued runs automatically; the lower-right kernel monitor provides a compact inspection view and a Clear pending action while work is waiting.
 
 Durable editor, notebook, and Codex defaults can use an optional host-side `~/.zbook/settings.json`; without it, Zbook uses browser-local storage. Open Preferences from the top-right cog. The file is never created or repaired silently. See the [user settings schema and storage rules](docs/settings.md).
 

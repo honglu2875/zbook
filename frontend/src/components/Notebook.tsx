@@ -10,6 +10,7 @@ import { primaryShortcut } from "../services/shortcuts";
 import { CellEditor, type CellSelectionAction } from "./CellEditor";
 import {
   ChevronIcon,
+  CloseIcon,
   DownloadIcon,
   HeightIcon,
   LockIcon,
@@ -49,12 +50,14 @@ interface NotebookProps {
   codexChangedCellIds: string[];
   codexUndoAvailable: boolean;
   cellViews: Record<string, CellViewState>;
+  queuePositions: Record<string, number>;
   onSelect: (id: string) => void;
   onEdit: (id: string) => void;
   onChange: (id: string, source: string) => void;
   onChangeKind: (id: string, kind: CellKind) => void;
   onDelete: (id: string) => void;
   onRun: (id: string, advance: boolean, insert: boolean) => void;
+  onCancelQueuedFrom: (id: string) => void;
   onAddAfter: (id: string, kind: CellKind) => void;
   onReviewNextProposal: () => void;
   onApplyProposal: (id: string, runAfter: boolean) => void;
@@ -263,12 +266,14 @@ export function Notebook({
   codexChangedCellIds,
   codexUndoAvailable,
   cellViews,
+  queuePositions,
   onSelect,
   onEdit,
   onChange,
   onChangeKind,
   onDelete,
   onRun,
+  onCancelQueuedFrom,
   onAddAfter,
   onReviewNextProposal,
   onApplyProposal,
@@ -339,6 +344,9 @@ export function Notebook({
           const displaySource = proposal?.draftSource ?? cell.source;
           const editing = editingId === cell.id && !proposal;
           const changedByCodex = codexChangedCellIds.includes(cell.id);
+          const queuePosition = queuePositions[cell.id] ?? null;
+          const running = cell.state === "running";
+          const queued = cell.state === "queued";
           const codexLocked = lockedCellIds.includes(cell.id);
           const cellLocked = locked || codexLocked || Boolean(proposal);
           const view = cellViews[cell.id] ?? {};
@@ -350,8 +358,9 @@ export function Notebook({
             <div className="notebook-cell-group" key={cell.id}>
               <article
                 data-cell-id={cell.id}
-                className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${proposal ? "has-codex-proposal" : ""} ${proposal?.proposalKind === "insert" ? "is-proposal-insert" : ""} ${proposal?.state === "streaming" ? "is-proposal-streaming" : ""} ${proposal?.state === "review" ? "is-proposal-review" : ""} ${proposal?.state === "conflict" ? "is-proposal-conflict" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
+                className={`notebook-cell ${cellTitle ? "has-cell-title" : ""} ${selected ? "is-selected" : ""} ${editing ? "is-editing" : ""} ${cellLocked ? "is-locked" : ""} ${running ? "is-running" : ""} ${queued ? "is-queued" : ""} ${codexLocked ? "is-codex-locked" : ""} ${changedByCodex ? "is-codex-changed" : ""} ${proposal ? "has-codex-proposal" : ""} ${proposal?.proposalKind === "insert" ? "is-proposal-insert" : ""} ${proposal?.state === "streaming" ? "is-proposal-streaming" : ""} ${proposal?.state === "review" ? "is-proposal-review" : ""} ${proposal?.state === "conflict" ? "is-proposal-conflict" : ""} ${view.outputLimited ? "has-limited-output" : ""} ${titleCollapsed ? "is-title-collapsed" : ""}`}
                 tabIndex={0}
+                aria-busy={running || undefined}
                 onFocus={(event) => {
                   if (event.target === event.currentTarget) onSelect(cell.id);
                 }}
@@ -364,7 +373,7 @@ export function Notebook({
                   if ((event.target as HTMLElement).closest(".cell-editor")) return;
                   if (!cellLocked) onEdit(cell.id);
                 }}
-                aria-label={`${proposal?.proposalKind === "insert" ? "proposed new " : ""}${cell.kind} cell${codexLocked ? ", locked by Codex" : ""}${proposal ? ", with a Codex proposal" : ""}`}
+                aria-label={`${proposal?.proposalKind === "insert" ? "proposed new " : ""}${cell.kind} cell${running ? ", running" : queued ? `, queued at position ${queuePosition ?? "unknown"}` : ""}${codexLocked ? ", locked by Codex" : ""}${proposal ? ", with a Codex proposal" : ""}`}
               >
                 <div
                   className="cell-rail"
@@ -389,7 +398,7 @@ export function Notebook({
                     )}
                     <select
                       value={cell.kind}
-                      disabled={cellLocked}
+                      disabled={cellLocked || running || queued}
                       onChange={(event) => onChangeKind(cell.id, event.target.value as CellKind)}
                       onClick={(event) => event.stopPropagation()}
                       aria-label="Cell type"
@@ -398,7 +407,7 @@ export function Notebook({
                       <option value="markdown">Markdown</option>
                       <option value="raw">Raw</option>
                     </select>
-                    <button className="cell-delete" disabled={cellLocked} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
+                    <button className="cell-delete" disabled={cellLocked || running || queued} onClick={(event) => { event.stopPropagation(); onDelete(cell.id); }} aria-label="Delete cell" title="Delete cell"><TrashIcon /></button>
                   </div>
                 )}
                 {cellTitle && (
@@ -432,17 +441,30 @@ export function Notebook({
                 >
                   {!titleCollapsed && (cell.kind === "code" ? (
                     <>
-                      <button
-                        className="run-button"
-                        disabled={cellLocked || !canRun || cell.state === "running"}
-                        onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
-                        aria-label="Run cell"
-                        title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
-                      >
-                        <PlayIcon />
-                      </button>
-                      <span className="execution-count">
-                        {cell.state === "running" ? "[…]" : cell.executionCount === null ? "[ ]" : `[${cell.executionCount}]`}
+                      {running ? (
+                        <span className="cell-run-spinner" aria-hidden="true" />
+                      ) : queued ? (
+                        <button
+                          type="button"
+                          className="run-button queue-cancel"
+                          onClick={(event) => { event.stopPropagation(); onCancelQueuedFrom(cell.id); }}
+                          aria-label={`Cancel queued cell Q${queuePosition ?? ""} and all later queued cells`}
+                          title="Cancel this and later queued runs"
+                        ><CloseIcon /></button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="run-button"
+                          disabled={cellLocked || !canRun}
+                          onClick={(event) => { event.stopPropagation(); onRun(cell.id, false, false); }}
+                          aria-label="Run cell"
+                          title={canRun ? "Run cell" : "Prepare the Python kernel from the environment panel"}
+                        >
+                          <PlayIcon />
+                        </button>
+                      )}
+                      <span className={`execution-count ${running ? "is-running" : queued ? "is-queued" : ""}`}>
+                        {running ? "[…]" : queued ? `Q${queuePosition ?? "?"}` : cell.executionCount === null ? "[ ]" : `[${cell.executionCount}]`}
                       </span>
                     </>
                   ) : <span className="markdown-mark">{cell.kind === "markdown" ? "M" : "R"}</span>)}

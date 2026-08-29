@@ -24,6 +24,7 @@ import {
   PanelRightIcon,
   PlayIcon,
   PlusIcon,
+  RefreshIcon,
   SearchIcon,
   SettingsIcon,
   StopIcon,
@@ -42,6 +43,18 @@ import {
   type NotebookCell,
   type RawNotebook,
 } from "./model/notebook";
+import {
+  activateNextExecution,
+  cancelAllExecutions,
+  cancelQueuedFrom,
+  clearPendingExecutions,
+  completeActiveExecution,
+  emptyExecutionQueue,
+  enqueueExecution,
+  executionPosition,
+  failActiveExecution,
+  type ExecutionQueueState,
+} from "./model/executionQueue";
 import {
   applyProposalOperation,
   applyReviewedCellProposal,
@@ -379,12 +392,14 @@ export default function App() {
   const [renamingTabName, setRenamingTabName] = useState("");
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [kernelMonitorOpen, setKernelMonitorOpen] = useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [directories, setDirectories] = useState<Record<string, ContentEntry[]>>({});
   const [treeDirectory, setTreeDirectory] = useState("");
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set([""]));
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [, setKernelVersion] = useState(0);
+  const [executionQueue, setExecutionQueue] = useState<ExecutionQueueState>(emptyExecutionQueue);
   const [busy, setBusy] = useState(false);
   const [notebookToolLocked, setNotebookToolLocked] = useState(false);
   const [codexTurnActive, setCodexTurnActive] = useState(false);
@@ -417,6 +432,10 @@ export default function App() {
   const pendingCellDeleteRef = useRef<PendingCellDelete | null>(null);
   const vimKeymapRef = useRef<HTMLDivElement | null>(null);
   const kernelMonitorRef = useRef<HTMLDivElement | null>(null);
+  const restartConfirmRef = useRef<HTMLDivElement | null>(null);
+  const executionQueueRef = useRef(executionQueue);
+  const executionPumpGenerationRef = useRef<number | null>(null);
+  const executionGenerationRef = useRef(0);
   const preferencesRef = useRef(preferences);
   const preferenceSaveTimer = useRef<number | null>(null);
   const preferenceSaveGeneration = useRef(0);
@@ -442,6 +461,7 @@ export default function App() {
   selectedIdRef.current = selectedId;
   cellViewsByNotebookRef.current = cellViewsByNotebook;
   preferencesRef.current = preferences;
+  executionQueueRef.current = executionQueue;
   const vimEnabled = preferences.editor.vim;
   const renderNotebookWidget = useCallback((modelId: string, element: HTMLElement) => {
     const path = documentRef.current.notebookPath;
@@ -619,15 +639,17 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (!vimKeymapOpen && !kernelMonitorOpen) return;
+    if (!vimKeymapOpen && !kernelMonitorOpen && !restartConfirmOpen) return;
     function closeOnOutsidePointer(event: PointerEvent) {
       if (!vimKeymapRef.current?.contains(event.target as Node)) setVimKeymapOpen(false);
       if (!kernelMonitorRef.current?.contains(event.target as Node)) setKernelMonitorOpen(false);
+      if (!restartConfirmRef.current?.contains(event.target as Node)) setRestartConfirmOpen(false);
     }
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setVimKeymapOpen(false);
         setKernelMonitorOpen(false);
+        setRestartConfirmOpen(false);
       }
     }
     document.addEventListener("pointerdown", closeOnOutsidePointer);
@@ -636,11 +658,25 @@ export default function App() {
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [kernelMonitorOpen, vimKeymapOpen]);
+  }, [kernelMonitorOpen, restartConfirmOpen, vimKeymapOpen]);
 
-  useEffect(() => setKernelMonitorOpen(false), [notebookPath]);
+  useEffect(() => {
+    setKernelMonitorOpen(false);
+    setRestartConfirmOpen(false);
+  }, [notebookPath]);
+
+  useEffect(() => {
+    if (
+      executionQueue.active
+      || executionQueue.pending.length === 0
+      || kernelState === "busy"
+      || kernelState === "starting"
+    ) return;
+    void pumpExecutionQueue();
+  }, [executionQueue.active, executionQueue.pending.length, kernelState]);
 
   useEffect(() => () => {
+    executionGenerationRef.current += 1;
     void kernelPool.shutdownAll();
     if (pendingCellDeleteRef.current) window.clearTimeout(pendingCellDeleteRef.current.timer);
     if (preferenceSaveTimer.current !== null) window.clearTimeout(preferenceSaveTimer.current);
@@ -983,6 +1019,7 @@ export default function App() {
   }
 
   async function changeEnvironment(path: string) {
+    discardExecutionQueue();
     await kernelPool.shutdownAll();
     await selectEnvironment(path);
     await refreshStatus();
@@ -1097,6 +1134,10 @@ export default function App() {
     if (!path) return;
     if (notebookToolLockedRef.current || codexLockedCellIds(path).length) {
       setNotice("Wait for Codex to finish before changing cell structure history.");
+      return;
+    }
+    if (executionQueueRef.current.active || executionQueueRef.current.pending.length > 0) {
+      setNotice("Finish or clear the execution queue before changing cell structure history.");
       return;
     }
     const history = cellStructureHistories.current.get(path);
@@ -1283,6 +1324,15 @@ export default function App() {
     return false;
   }
 
+  function cellExecutionStructureBlocked(id: string): boolean {
+    const position = executionPosition(executionQueueRef.current, id);
+    if (position === null) return false;
+    setNotice(position === 0
+      ? "Wait for that cell to finish before changing its type or deleting it."
+      : `Cancel the cell from Q${position} before changing its type or deleting it.`);
+    return true;
+  }
+
   function retainCodexCellLocks(path: string, validCells: NotebookCell[]) {
     const current = codexCellLocksRef.current[path];
     if (!current?.length) return;
@@ -1396,6 +1446,14 @@ export default function App() {
     }
     const path = documentRef.current.notebookPath;
     if (!path) return;
+    if (executionQueueRef.current.active) {
+      setNotice("Interrupt the running cell before reloading this notebook.");
+      return;
+    }
+    if (executionQueueRef.current.pending.length > 0) {
+      setNotice("Finish or clear the pending execution queue before reloading this notebook.");
+      return;
+    }
     if (codexLockedCellIds(path).length) {
       setNotice("Codex has cells locked in this notebook until the turn finishes.");
       return;
@@ -1608,6 +1666,9 @@ export default function App() {
     const activeKernel = kernelPool.state(current.notebookPath);
     if (activeKernel === "busy" || activeKernel === "starting") {
       return { success: false, result: { error: "Wait for the running cell to finish before locking or editing it." } };
+    }
+    if (executionQueueRef.current.pending.length > 0) {
+      return { success: false, result: { error: "Finish or clear the pending execution queue before locking or editing cells." } };
     }
     if (typeof args.notebookPath !== "string" || args.notebookPath !== current.notebookPath) {
       return {
@@ -2026,6 +2087,7 @@ export default function App() {
   }
 
   function resetNotebookDocument() {
+    discardExecutionQueue();
     setNotebookPath(null);
     setCells([]);
     setMetadata({});
@@ -2045,9 +2107,16 @@ export default function App() {
       return true;
     }
     const state = kernelPool.state(documentRef.current.notebookPath);
-    if (state !== "busy" && state !== "starting") return false;
-    setNotice("Interrupt the running cell before switching notebooks.");
-    return true;
+    const queue = executionQueueRef.current;
+    if (state === "busy" || state === "starting" || queue.active) {
+      setNotice("Interrupt the running cell before switching notebooks.");
+      return true;
+    }
+    if (queue.pending.length > 0) {
+      setNotice("Finish or clear the pending execution queue before switching notebooks.");
+      return true;
+    }
+    return false;
   }
 
   async function loadNotebookDocument(
@@ -2486,7 +2555,7 @@ export default function App() {
   }
 
   function changeCellKind(id: string, kind: CellKind) {
-    if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
+    if (notebookToolLockedRef.current || cellMutationBlocked(id) || cellExecutionStructureBlocked(id)) return;
     updateCells((current) => current.map((cell) => cell.id === id ? {
       ...cell,
       kind,
@@ -2497,7 +2566,7 @@ export default function App() {
   }
 
   function deleteCell(id: string) {
-    if (notebookToolLockedRef.current || cellMutationBlocked(id)) return;
+    if (notebookToolLockedRef.current || cellMutationBlocked(id) || cellExecutionStructureBlocked(id)) return;
     const current = documentRef.current;
     const index = current.cells.findIndex((cell) => cell.id === id);
     if (index < 0) return;
@@ -2632,9 +2701,8 @@ export default function App() {
       return;
     }
     if (notebookToolLockedRef.current) return;
-    const kernel = kernelPool.state(path);
-    if (runAfter && (kernel === "busy" || kernel === "starting")) {
-      setNotice("Wait for the running cell to finish before applying and running this proposal.");
+    if (executionQueueRef.current.active?.cellId === id) {
+      setNotice("Wait for that cell to finish before applying its Codex proposal.");
       return;
     }
 
@@ -2683,7 +2751,11 @@ export default function App() {
       notebookToolLockedRef.current = false;
       setNotebookToolLocked(false);
     }
-    if (applied && runAfter) await runCell(id, false, false);
+    if (applied && runAfter) {
+      const position = executionPosition(executionQueueRef.current, id);
+      if (position === null) await runCell(id, false, false);
+      else setNotice(`Applied and saved the proposal; the cell remains queued at Q${position}.`);
+    }
   }
 
   function rejectCellProposal(id: string) {
@@ -2767,13 +2839,168 @@ export default function App() {
     }
   }
 
+  function replaceExecutionQueue(
+    update: (current: ExecutionQueueState) => ExecutionQueueState,
+  ): ExecutionQueueState {
+    const current = executionQueueRef.current;
+    const next = update(current);
+    if (next === current) return current;
+    executionQueueRef.current = next;
+    setExecutionQueue(next);
+    return next;
+  }
+
+  function replaceExecutionCells(
+    update: (cell: NotebookCell) => NotebookCell,
+    cellIds: Iterable<string>,
+  ) {
+    const ids = new Set(cellIds);
+    if (ids.size === 0) return;
+    const current = documentRef.current;
+    const nextCells = current.cells.map((cell) => ids.has(cell.id) ? update(cell) : cell);
+    documentRef.current = { ...current, cells: nextCells };
+    setCells(nextCells);
+  }
+
   function applyExecution(id: string, result: ExecutionResult, state: "running" | "idle" | "error") {
-    setCells((current) => current.map((cell) => cell.id === id ? {
+    replaceExecutionCells((cell) => ({
       ...cell,
       outputs: result.outputs,
       executionCount: result.executionCount,
       state,
-    } : cell));
+    }), [id]);
+  }
+
+  function resetExecutionCells(cellIds: Iterable<string>) {
+    replaceExecutionCells(
+      (cell) => cell.state === "queued" || cell.state === "running"
+        ? { ...cell, state: "idle" }
+        : cell,
+      cellIds,
+    );
+  }
+
+  function revealExecutionCell(id: string) {
+    selectCell(id);
+    setEditingId(null);
+    setMode("NAV");
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-cell-id="${id}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  function discardExecutionQueue(): number {
+    executionGenerationRef.current += 1;
+    executionPumpGenerationRef.current = null;
+    const cancelled = cancelAllExecutions(executionQueueRef.current);
+    replaceExecutionQueue(() => cancelled.queue);
+    resetExecutionCells(cancelled.cancelledCellIds);
+    return cancelled.cancelledCellIds.length;
+  }
+
+  function cancelExecutionFrom(id: string) {
+    const result = cancelQueuedFrom(executionQueueRef.current, id);
+    if (result.cancelledCellIds.length === 0) return;
+    replaceExecutionQueue(() => result.queue);
+    resetExecutionCells(result.cancelledCellIds);
+    const running = result.queue.active ? " The running cell was not interrupted." : "";
+    setNotice(`Cancelled ${result.cancelledCellIds.length} queued run${result.cancelledCellIds.length === 1 ? "" : "s"} from this cell onward.${running}`);
+  }
+
+  function clearPendingQueue() {
+    const result = clearPendingExecutions(executionQueueRef.current);
+    if (result.cancelledCellIds.length === 0) return;
+    replaceExecutionQueue(() => result.queue);
+    resetExecutionCells(result.cancelledCellIds);
+    setNotice(`Cleared ${result.cancelledCellIds.length} pending run${result.cancelledCellIds.length === 1 ? "" : "s"}.${result.queue.active ? " The running cell was not interrupted." : ""}`);
+  }
+
+  async function pumpExecutionQueue() {
+    if (executionPumpGenerationRef.current !== null) return;
+    const path = documentRef.current.notebookPath;
+    if (!path) return;
+    const client = kernelPool.client(path);
+    if (client.currentState === "busy" || client.currentState === "starting") return;
+
+    const activated = activateNextExecution(executionQueueRef.current);
+    if (!activated.active || activated === executionQueueRef.current) return;
+    replaceExecutionQueue(() => activated);
+    const item = activated.active;
+    const generation = executionGenerationRef.current;
+    executionPumpGenerationRef.current = generation;
+    let failed = false;
+    let failureMessage: string | null = null;
+
+    try {
+      const cell = documentRef.current.cells.find((candidate) => candidate.id === item.cellId);
+      if (!cell || cell.kind !== "code") {
+        failed = true;
+        resetExecutionCells([item.cellId]);
+        failureMessage = "A queued cell no longer exists as code.";
+        return;
+      }
+
+      markDirty();
+      replaceExecutionCells((candidate) => ({
+        ...candidate,
+        outputs: [],
+        executionCount: null,
+        state: "running",
+      }), [item.cellId]);
+
+      await client.start(path);
+      if (generation !== executionGenerationRef.current || documentRef.current.notebookPath !== path) return;
+      const currentCell = documentRef.current.cells.find((candidate) => candidate.id === item.cellId);
+      if (!currentCell || currentCell.kind !== "code") {
+        failed = true;
+        resetExecutionCells([item.cellId]);
+        failureMessage = "The running cell changed type before execution.";
+        return;
+      }
+
+      const result = await client.execute(currentCell.source, (next) => {
+        if (generation === executionGenerationRef.current) applyExecution(item.cellId, next, "running");
+      });
+      if (generation !== executionGenerationRef.current) return;
+      failed = result.outputs.some((output) => output.type === "error");
+      if (failed) failureMessage = "Execution stopped with an error.";
+      applyExecution(item.cellId, result, failed ? "error" : "idle");
+      markDirty();
+    } catch (error) {
+      if (generation !== executionGenerationRef.current) return;
+      failed = true;
+      replaceExecutionCells((cell) => ({ ...cell, state: "error" }), [item.cellId]);
+      markDirty();
+      failureMessage = `Kernel execution failed: ${String(error)}`;
+    } finally {
+      if (generation !== executionGenerationRef.current) {
+        if (executionPumpGenerationRef.current === generation) {
+          executionPumpGenerationRef.current = null;
+        }
+        return;
+      }
+      const current = executionQueueRef.current;
+      if (current.active?.cellId === item.cellId) {
+        if (failed) {
+          const cancelled = failActiveExecution(current);
+          replaceExecutionQueue(() => cancelled.queue);
+          resetExecutionCells(cancelled.cancelledCellIds);
+          const suffix = cancelled.cancelledCellIds.length > 0
+            ? ` Cancelled ${cancelled.cancelledCellIds.length} subsequent queued run${cancelled.cancelledCellIds.length === 1 ? "" : "s"}.`
+            : "";
+          setNotice(`${failureMessage ?? "Execution stopped with an error."}${suffix}`);
+        } else {
+          replaceExecutionQueue(() => completeActiveExecution(current));
+        }
+      }
+      if (executionPumpGenerationRef.current === generation) {
+        executionPumpGenerationRef.current = null;
+      }
+      if (executionQueueRef.current.pending.length > 0) {
+        void pumpExecutionQueue();
+      }
+    }
   }
 
   function advanceAfterRun(id: string, insert: boolean, editNext = true) {
@@ -2790,7 +3017,7 @@ export default function App() {
     }
     const next = current[index + 1];
     const shouldEdit = editNext && next.kind !== "markdown" && !isCodexCellLocked(next.id);
-    setSelectedId(next.id);
+    selectCell(next.id);
     setEditingId(shouldEdit ? next.id : null);
     if (!shouldEdit) setMode("NAV");
   }
@@ -2801,7 +3028,6 @@ export default function App() {
       return false;
     }
     if (cellMutationBlocked(id)) return false;
-    const client = notebookPath ? kernelPool.client(notebookPath) : null;
     const cell = documentRef.current.cells.find((item) => item.id === id);
     if (!cell) return false;
     if (cell.kind !== "code") {
@@ -2810,40 +3036,25 @@ export default function App() {
       if (advance) advanceAfterRun(id, insert, insert);
       return true;
     }
-    if (!notebookPath || !client) return false;
+    if (!notebookPath) return false;
     if (!status?.kernel.ready) {
       setNotice(status?.kernel.error
         ? `The selected environment is not ready: ${status.kernel.error}`
         : "Prepare ipykernel in the selected environment first.");
       return false;
     }
-    if (client.currentState === "busy" || client.currentState === "starting") {
-      setNotice("The Python kernel is already running a cell.");
+    const queued = enqueueExecution(executionQueueRef.current, id);
+    if (!queued.accepted) {
+      setNotice(queued.position === 0
+        ? "That cell is already running."
+        : `That cell is already queued at Q${queued.position}.`);
       return false;
     }
-
-    markDirty();
-    setCells((current) => current.map((item) => item.id === id ? {
-      ...item,
-      outputs: [],
-      executionCount: null,
-      state: "running",
-    } : item));
-
-    try {
-      await client.start(notebookPath);
-      const result = await client.execute(cell.source, (next) => applyExecution(id, next, "running"));
-      const failed = result.outputs.some((output) => output.type === "error");
-      applyExecution(id, result, failed ? "error" : "idle");
-      markDirty();
-      if (advance) advanceAfterRun(id, insert);
-      return !failed;
-    } catch (error) {
-      setCells((current) => current.map((item) => item.id === id ? { ...item, state: "error" } : item));
-      markDirty();
-      setNotice(`Kernel execution failed: ${String(error)}`);
-      return false;
-    }
+    replaceExecutionQueue(() => queued.queue);
+    replaceExecutionCells((item) => ({ ...item, state: "queued" }), [id]);
+    if (advance) advanceAfterRun(id, insert);
+    void pumpExecutionQueue();
+    return true;
   }
 
   async function runAll() {
@@ -2851,34 +3062,58 @@ export default function App() {
       .filter((cell) => cell.kind === "code")
       .map((cell) => cell.id);
     for (const id of codeCellIds) {
-      if (!(await runCell(id, false, false))) break;
+      if (executionPosition(executionQueueRef.current, id) === null) {
+        await runCell(id, false, false);
+      }
     }
   }
 
   async function interruptKernel() {
     try {
       const path = documentRef.current.notebookPath;
-      if (path) await kernelPool.client(path).interrupt();
+      if (!path) return;
+      const cancelled = clearPendingExecutions(executionQueueRef.current);
+      replaceExecutionQueue(() => cancelled.queue);
+      resetExecutionCells(cancelled.cancelledCellIds);
+      await kernelPool.client(path).interrupt();
+      const suffix = cancelled.cancelledCellIds.length > 0
+        ? ` Cancelled ${cancelled.cancelledCellIds.length} subsequent queued run${cancelled.cancelledCellIds.length === 1 ? "" : "s"}.`
+        : "";
+      setNotice(`Interrupt requested.${suffix}`);
     } catch (error) {
       setNotice(`Could not interrupt the kernel: ${String(error)}`);
     }
+  }
+
+  async function requestKernelRestart() {
+    const path = documentRef.current.notebookPath;
+    if (!path || !status?.kernel.ready || notebookToolLockedRef.current || codexTurnActiveRef.current) return;
+    const state = kernelPool.state(path);
+    if (state === "starting") return;
+    if (
+      (
+        state !== "disconnected"
+        && state !== "dead"
+        && state !== "error"
+        || executionQueueRef.current.active !== null
+        || executionQueueRef.current.pending.length > 0
+      )
+      && preferencesRef.current.notebook.confirmKernelRestart
+    ) {
+      setKernelMonitorOpen(false);
+      setRestartConfirmOpen(true);
+      return;
+    }
+    await restartKernel();
   }
 
   async function restartKernel() {
     const path = documentRef.current.notebookPath;
     if (!path || !status?.kernel.ready || notebookToolLockedRef.current || codexTurnActiveRef.current) return;
     const state = kernelPool.state(path);
-    if (state === "busy" || state === "starting") {
-      setNotice("Interrupt the running cell before restarting its kernel.");
-      return;
-    }
-    if (
-      state === "idle"
-      && preferences.notebook.confirmKernelRestart
-      && !window.confirm(`Restart the kernel for ${basename(path)}? All variables will be cleared.`)
-    ) {
-      return;
-    }
+    if (state === "starting") return;
+    setRestartConfirmOpen(false);
+    discardExecutionQueue();
     setBusy(true);
     try {
       await kernelPool.shutdown(path);
@@ -2981,6 +3216,29 @@ export default function App() {
   const activeLockedCellIds = notebookPath ? codexCellLocks[notebookPath] ?? [] : [];
   const activeCellProposals = notebookPath ? cellProposalsByNotebook[notebookPath] ?? {} : {};
   const visibleCells = cellsWithInsertionProposals(cells, activeCellProposals);
+  const executionCellLabel = (id: string) => {
+    const index = cells.findIndex((cell) => cell.id === id);
+    return index < 0 ? "Unavailable cell" : `Cell ${index + 1}`;
+  };
+  const executionQueuePositions = Object.fromEntries(
+    executionQueue.pending.map((item, index) => [item.cellId, index + 1]),
+  );
+  const kernelQueue = {
+    active: executionQueue.active ? {
+      cellId: executionQueue.active.cellId,
+      label: executionCellLabel(executionQueue.active.cellId),
+      position: 0,
+    } : null,
+    pending: executionQueue.pending.map((item, index) => ({
+      cellId: item.cellId,
+      label: executionCellLabel(item.cellId),
+      position: index + 1,
+    })),
+  };
+  const kernelStatusPresentationState = executionQueue.active ? "busy" : kernelState;
+  const kernelStatusLabel = executionQueue.active
+    ? `running · ${executionCellLabel(executionQueue.active.cellId).toLowerCase()}${executionQueue.pending.length ? ` · ${executionQueue.pending.length} queued` : ""}`
+    : `kernel: ${kernelState}${executionQueue.pending.length ? ` · ${executionQueue.pending.length} queued` : ""}`;
   const visibleSelectedCell = visibleCells.find((cell) => cell.id === selectedId) ?? null;
   const selectedCellForCodex = visibleSelectedCell && activeCellProposals[visibleSelectedCell.id]
     ? { ...visibleSelectedCell, source: activeCellProposals[visibleSelectedCell.id].draftSource }
@@ -3015,7 +3273,7 @@ export default function App() {
       id: "notebook.runAll",
       label: "Run all cells",
       detail: "Execute code cells from top to bottom",
-      disabled: !notebookPath || !status?.kernel.ready || kernelState === "busy",
+      disabled: !notebookPath || !status?.kernel.ready || notebookToolLocked,
       run: () => void runAll(),
     },
     {
@@ -3024,8 +3282,8 @@ export default function App() {
         ? "Start notebook kernel"
         : "Restart notebook kernel",
       detail: notebookPath ? `Kernel isolated to ${basename(notebookPath)}` : "No notebook open",
-      disabled: !notebookPath || !status?.kernel.ready || notebookToolLocked || codexTurnActive || kernelState === "busy" || kernelState === "starting",
-      run: () => void restartKernel(),
+      disabled: !notebookPath || !status?.kernel.ready || notebookToolLocked || codexTurnActive || kernelState === "starting",
+      run: () => void requestKernelRestart(),
     },
     {
       id: "workspace.refresh",
@@ -3093,11 +3351,38 @@ export default function App() {
         <div className="title-actions">
           <button className={leftOpen ? "is-active" : ""} onClick={() => toggleSidePanel("left")} aria-label="Toggle files" aria-pressed={leftOpen}><PanelIcon /></button>
           <button className="quick-open-button" onClick={() => openCommandPalette("files")} aria-label="Quick open" title={`Quick open (${quickOpenShortcut})`}><SearchIcon /></button>
-          {kernelState === "busy" ? (
+          {kernelState === "busy" || executionQueue.active ? (
             <button className="run-all" onClick={() => void interruptKernel()}><StopIcon />Interrupt</button>
           ) : (
             <button className="run-all" disabled={!notebookPath || notebookToolLocked || !status?.kernel.ready} onClick={() => void runAll()}><PlayIcon />Run all</button>
           )}
+          <div className="kernel-restart-control" ref={restartConfirmRef}>
+            <button
+              type="button"
+              className="kernel-restart-button"
+              disabled={!notebookPath || !status?.kernel.ready || notebookToolLocked || codexTurnActive || busy || kernelState === "starting"}
+              onClick={() => void requestKernelRestart()}
+              aria-label={kernelState === "disconnected" || kernelState === "dead" || kernelState === "error" ? "Start kernel" : "Restart kernel"}
+              aria-expanded={restartConfirmOpen}
+              title={kernelState === "disconnected" || kernelState === "dead" || kernelState === "error" ? "Start kernel" : "Restart kernel"}
+            ><RefreshIcon /></button>
+            {restartConfirmOpen && (
+              <section className="kernel-restart-confirm" role="dialog" aria-label="Confirm kernel restart">
+                <strong>Restart Python kernel?</strong>
+                <p>
+                  {executionQueue.active ? "The running cell will stop. " : ""}
+                  {executionQueue.pending.length > 0
+                    ? `${executionQueue.pending.length} queued run${executionQueue.pending.length === 1 ? "" : "s"} will be cleared. `
+                    : ""}
+                  Variables will be cleared; notebook outputs remain.
+                </p>
+                <div>
+                  <button type="button" autoFocus onClick={() => setRestartConfirmOpen(false)}>Cancel</button>
+                  <button type="button" className="is-confirm" onClick={() => void restartKernel()}>Restart</button>
+                </div>
+              </section>
+            )}
+          </div>
           <button className={rightOpen ? "is-active" : ""} onClick={() => toggleSidePanel("right")} aria-label="Toggle Codex" aria-pressed={rightOpen}><PanelRightIcon /></button>
           <button
             className={preferencesOpen ? "is-active" : ""}
@@ -3252,7 +3537,7 @@ export default function App() {
             lineWrapping={preferences.editor.lineWrapping}
             tabSize={preferences.editor.tabSize}
             saveState={saveState}
-            canRun={Boolean(status?.kernel.ready) && !notebookToolLocked && kernelState !== "busy" && kernelState !== "starting"}
+            canRun={Boolean(status?.kernel.ready) && !notebookToolLocked}
             locked={notebookToolLocked}
             lockedCellIds={activeLockedCellIds}
             proposalActionsDisabled={codexTurnActive}
@@ -3266,12 +3551,14 @@ export default function App() {
               && activeLockedCellIds.length === 0
             )}
             cellViews={cellViewsByNotebook[notebookPath] ?? {}}
+            queuePositions={executionQueuePositions}
             onSelect={selectCell}
             onEdit={beginCellEditing}
             onChange={updateCell}
             onChangeKind={changeCellKind}
             onDelete={deleteCell}
             onRun={runCell}
+            onCancelQueuedFrom={cancelExecutionFrom}
             onAddAfter={insertAfter}
             onReviewNextProposal={reviewNextProposal}
             onApplyProposal={(id, runAfter) => void applyCellProposal(id, runAfter)}
@@ -3428,7 +3715,7 @@ export default function App() {
         <div className="kernel-status-control" ref={kernelMonitorRef}>
           <button
             type="button"
-            className={`kernel-status is-${kernelState} ${kernelMonitorOpen ? "is-open" : ""}`}
+            className={`kernel-status is-${kernelStatusPresentationState} ${kernelMonitorOpen ? "is-open" : ""}`}
             disabled={!notebookPath || !status?.kernel.ready}
             aria-expanded={kernelMonitorOpen}
             aria-haspopup="dialog"
@@ -3437,16 +3724,20 @@ export default function App() {
               setKernelMonitorOpen((value) => !value);
             }}
             title="Open active kernel status and controls"
-          ><i aria-hidden="true" />kernel: {kernelState}</button>
+          ><i aria-hidden="true" />{kernelStatusLabel}</button>
           {kernelMonitorOpen && notebookPath && status?.kernel.ready && (
             <KernelMonitor
               state={kernelState}
               notebookName={basename(notebookPath)}
               environmentName={status.config.venv}
-              restartDisabled={notebookToolLocked || codexTurnActive || busy}
+              queue={kernelQueue}
+              restartDisabled={notebookToolLocked || codexTurnActive || busy || kernelState === "starting"}
               onSample={sampleActiveKernel}
               onInterrupt={interruptKernel}
-              onRestart={restartKernel}
+              onRestart={requestKernelRestart}
+              onRevealExecution={revealExecutionCell}
+              onCancelQueuedFrom={cancelExecutionFrom}
+              onClearPending={clearPendingQueue}
               onClose={() => setKernelMonitorOpen(false)}
             />
           )}
