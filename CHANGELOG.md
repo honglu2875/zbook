@@ -4,6 +4,8 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.0rc3] - 2026-08-29
+
 ### Added
 
 - A frontend-owned execution queue with visible cell positions, dependency-safe suffix cancellation, automatic cancellation after errors or interruption, and controls in the kernel monitor.
@@ -14,6 +16,10 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 - Running cells now use a persistent spinner, warm rail, and subtle boundary treatment, while queued cells use quieter numbered indicators.
 - Code cells disable JetBrains Mono programming ligatures so repeated operators render character-for-character.
 - Cell type and delete controls sit on the upper cell boundary instead of covering long first lines.
+
+### Fixed
+
+- Pandas DataFrame outputs receive low-specificity dark-theme defaults that blend with the notebook while preserving custom table styles.
 
 ## [1.0.0rc2] - 2026-08-28
 
@@ -84,7 +90,8 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 - Initial PyPI release with the workspace tree, notebook editor, IPython execution, `uv` environment management, and Codex CLI panel.
 
-[Unreleased]: https://github.com/honglu2875/zbook/compare/v1.0.0rc2...HEAD
+[Unreleased]: https://github.com/honglu2875/zbook/compare/v1.0.0rc3...HEAD
+[1.0.0rc3]: https://github.com/honglu2875/zbook/compare/v1.0.0rc2...v1.0.0rc3
 [1.0.0rc2]: https://github.com/honglu2875/zbook/compare/v1.0.0rc1...v1.0.0rc2
 [1.0.0rc1]: https://github.com/honglu2875/zbook/compare/v0.1.1...v1.0.0rc1
 [0.1.1]: https://github.com/honglu2875/zbook/compare/v0.1.0...v0.1.1

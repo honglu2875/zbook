@@ -18,7 +18,7 @@ Codex runs through the locally installed Codex CLI. It can use your existing CLI
 The 1.0 line is currently a release candidate, so select it explicitly:
 
 ```bash
-uv tool install --force 'zbook==1.0.0rc2'
+uv tool install --force 'zbook==1.0.0rc3'
 zbook check
 zbook run
 ```
@@ -67,7 +67,7 @@ Zbook requires Python 3.11 or newer and [uv](https://docs.astral.sh/uv/getting-s
 Install the current Zbook release candidate as an isolated tool:
 
 ```bash
-uv tool install --force 'zbook==1.0.0rc2'
+uv tool install --force 'zbook==1.0.0rc3'
 zbook check
 ```
 
@@ -224,11 +224,11 @@ Releases are built and published by `.github/workflows/release.yml` through PyPI
 For a release, move the entries in the [changelog](https://github.com/honglu2875/zbook/blob/main/CHANGELOG.md) under the new version, update the sole package-version source, commit, and push the matching annotated tag:
 
 ```bash
-uv version 1.0.0rc2
+uv version 1.0.0rc3
 git add pyproject.toml uv.lock CHANGELOG.md README.md
-git commit -m "Release 1.0.0rc2"
-git tag -a v1.0.0rc2 -m "zbook 1.0.0rc2"
-git push origin main v1.0.0rc2
+git commit -m "Release 1.0.0rc3"
+git tag -a v1.0.0rc3 -m "zbook 1.0.0rc3"
+git push origin main v1.0.0rc3
 ```
 
 The release workflow verifies that tag and package versions match, rebuilds and compares the committed web client, runs tests, smoke-tests both distribution formats in isolated environments, and grants the publishing credential only to the final PyPI job. Published versions cannot be replaced.
