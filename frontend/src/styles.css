@@ -32,6 +32,8 @@ body { background: var(--bg); color: var(--text); }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button:disabled { cursor: default; opacity: .45; }
+select { color-scheme: dark; }
+select :is(option, optgroup) { background-color: var(--surface-raised); color: var(--text); }
 
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   outline: 1px solid #b89151;

@@ -463,6 +463,20 @@ test("creates and reloads durable host preferences", async ({ page, request }) =
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("Saved in this browser");
 
+  const reasoningSelect = dialog.getByRole("combobox", { name: /Reasoning effort/ });
+  const selectTheme = await reasoningSelect.evaluate((element) => {
+    const select = element as HTMLSelectElement;
+    const option = select.options[0];
+    return {
+      colorScheme: getComputedStyle(select).colorScheme,
+      optionBackground: getComputedStyle(option).backgroundColor,
+      optionColor: getComputedStyle(option).color,
+    };
+  });
+  expect(selectTheme.colorScheme).toContain("dark");
+  expect(selectTheme.optionBackground).toBe("rgb(34, 37, 40)");
+  expect(selectTheme.optionColor).toBe("rgb(216, 218, 222)");
+
   const vimStatus = page.locator(".status-vim-controls > button").first();
   await dialog.getByRole("checkbox", { name: /Vim bindings/ }).check();
   await dialog.getByRole("button", { name: "Close preferences" }).click();

@@ -4,6 +4,10 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ## [Unreleased]
 
+### Fixed
+
+- Native model, reasoning-effort, environment, cell-type, and preference menus now use dark popup colors consistent with the rest of Zbook.
+
 ## [1.0.0rc3] - 2026-08-29
 
 ### Added
