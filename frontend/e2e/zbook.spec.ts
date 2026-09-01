@@ -118,6 +118,10 @@ test("queues cells locally and cancels subsequent work after errors", async ({ p
   await third.getByRole("button", { name: "Run cell" }).click();
   await expect(third.locator(".execution-count")).toHaveText("Q1");
   await expect(second.locator(".cell-output")).toContainText("queue boom");
+  const traceback = second.locator(".cell-output pre.is-error");
+  await expect(traceback).toHaveClass(/has-ansi/);
+  await expect(traceback.locator(".ansi-text-run").first()).toBeVisible();
+  expect(await traceback.textContent()).not.toContain("\x1b");
   await expect(page.locator(".notice")).toContainText("Cancelled 1 subsequent queued run");
   await expect(third).not.toHaveClass(/is-queued/);
   await page.waitForTimeout(600);

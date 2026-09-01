@@ -194,3 +194,44 @@ describe("HTML notebook output", () => {
     expect(document.indexOf("</style>")).toBeLessThan(document.indexOf(data));
   });
 });
+
+describe("terminal-style notebook output", () => {
+  it("renders ANSI traceback styles without exposing controls or interpreting HTML", () => {
+    const traceback = "\x1b[0;31mValueError\x1b[0m: <script>alert('no')</script>";
+    const markup = renderCell({
+      ...cell,
+      outputs: [{
+        type: "error",
+        text: traceback,
+        raw: {
+          output_type: "error",
+          ename: "ValueError",
+          evalue: "unsafe text",
+          traceback: [traceback],
+        },
+      }],
+    });
+
+    expect(markup).toContain('class="is-error has-ansi"');
+    expect(markup).toContain('class="ansi-text-run"');
+    expect(markup).toContain("color:#d4777a");
+    expect(markup).toContain("&lt;script&gt;alert(&#x27;no&#x27;)&lt;/script&gt;");
+    expect(markup).not.toContain("\x1b");
+    expect(markup).not.toContain("<script>");
+  });
+
+  it("keeps plain errors on the existing non-ANSI rendering path", () => {
+    const markup = renderCell({
+      ...cell,
+      outputs: [{
+        type: "error",
+        text: "ValueError: plain failure",
+        raw: { output_type: "error", ename: "ValueError", evalue: "plain failure" },
+      }],
+    });
+
+    expect(markup).toContain('class="is-error"');
+    expect(markup).not.toContain("has-ansi");
+    expect(markup).toContain("ValueError: plain failure");
+  });
+});

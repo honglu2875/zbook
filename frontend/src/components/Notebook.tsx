@@ -7,6 +7,7 @@ import {
   type CellTextSelection,
 } from "../model/selectionContext";
 import { primaryShortcut } from "../services/shortcuts";
+import { AnsiText } from "./AnsiText";
 import { CellEditor, type CellSelectionAction } from "./CellEditor";
 import {
   ChevronIcon,
@@ -236,7 +237,7 @@ function RichOutput({ cellId, index, type, text, data, onRenderWidget }: {
       />
     );
   }
-  return <pre className={type === "error" ? "is-error" : ""}>{text}</pre>;
+  return <AnsiText className={type === "error" ? "is-error" : ""} text={text} />;
 }
 
 function titleFromSource(cell: NotebookCell): string | null {

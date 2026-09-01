@@ -542,6 +542,8 @@ body.is-resizing-pane .app-shell { transition: none; }
 .cell-output.is-height-limited { max-height: var(--output-max-height, 280px); overflow: auto; overscroll-behavior: contain; scrollbar-color: #4a4d4e #202326; scrollbar-width: thin; }
 .cell-output pre { margin: 0; overflow: auto; color: #aeb3b7; font: 12.5px/1.6 var(--font-mono); white-space: pre-wrap; }
 .cell-output pre.is-error { color: var(--red); }
+.cell-output pre.has-ansi { --ansi-output-foreground: #aeb3b7; --ansi-output-background: #1a1d1f; }
+.cell-output pre.is-error.has-ansi { color: var(--ansi-output-foreground); }
 .output-image-frame { display: block; width: 100%; max-width: 100%; overflow: hidden; outline: 0; }
 .output-image-frame.is-scaled { cursor: zoom-in; }
 .output-image-frame.is-native-size { max-height: none; overflow-x: auto; overflow-y: hidden; cursor: zoom-out; overscroll-behavior-x: contain; overscroll-behavior-y: auto; scrollbar-color: #4a4d4e #202326; scrollbar-width: thin; }
