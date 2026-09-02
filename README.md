@@ -15,13 +15,15 @@ Codex runs through the locally installed Codex CLI. It can use your existing CLI
 
 **Quick start**
 
-The 1.0 line is currently a release candidate, so select it explicitly:
+Install the stable release:
 
 ```bash
-uv tool install --force 'zbook==1.0.0rc3'
+uv tool install zbook
 zbook check
 zbook run
 ```
+
+To move an existing release-candidate installation to stable, run `uv tool upgrade zbook`.
 
 [Watch the short demo](https://github.com/user-attachments/assets/97e3538c-51c9-48e7-a42a-bf471219a79e)
 
@@ -64,10 +66,10 @@ Zbook intentionally does not include terminals, debuggers, dashboards, extension
 
 Zbook requires Python 3.11 or newer and [uv](https://docs.astral.sh/uv/getting-started/installation/). [Codex CLI](https://developers.openai.com/codex/cli/) is optional, but required for the assistant panel.
 
-Install the current Zbook release candidate as an isolated tool:
+Install Zbook as an isolated tool:
 
 ```bash
-uv tool install --force 'zbook==1.0.0rc3'
+uv tool install zbook
 zbook check
 ```
 
@@ -224,11 +226,12 @@ Releases are built and published by `.github/workflows/release.yml` through PyPI
 For a release, move the entries in the [changelog](https://github.com/honglu2875/zbook/blob/main/CHANGELOG.md) under the new version, update the sole package-version source, commit, and push the matching annotated tag:
 
 ```bash
-uv version 1.0.0rc3
+release_version=1.0.0
+uv version "$release_version"
 git add pyproject.toml uv.lock CHANGELOG.md README.md
-git commit -m "Release 1.0.0rc3"
-git tag -a v1.0.0rc3 -m "zbook 1.0.0rc3"
-git push origin main v1.0.0rc3
+git commit -m "Release $release_version"
+git tag -a "v$release_version" -m "zbook $release_version"
+git push origin main "v$release_version"
 ```
 
 The release workflow verifies that tag and package versions match, rebuilds and compares the committed web client, runs tests, smoke-tests both distribution formats in isolated environments, and grants the publishing credential only to the final PyPI job. Published versions cannot be replaced.

@@ -4,6 +4,8 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-02
+
 ### Fixed
 
 - IPython tracebacks and terminal-style text outputs now render safe ANSI colors and emphasis instead of exposing raw escape characters.
@@ -96,7 +98,8 @@ Notable user-facing changes are recorded here. This project follows [Semantic Ve
 
 - Initial PyPI release with the workspace tree, notebook editor, IPython execution, `uv` environment management, and Codex CLI panel.
 
-[Unreleased]: https://github.com/honglu2875/zbook/compare/v1.0.0rc3...HEAD
+[Unreleased]: https://github.com/honglu2875/zbook/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/honglu2875/zbook/compare/v1.0.0rc3...v1.0.0
 [1.0.0rc3]: https://github.com/honglu2875/zbook/compare/v1.0.0rc2...v1.0.0rc3
 [1.0.0rc2]: https://github.com/honglu2875/zbook/compare/v1.0.0rc1...v1.0.0rc2
 [1.0.0rc1]: https://github.com/honglu2875/zbook/compare/v0.1.1...v1.0.0rc1

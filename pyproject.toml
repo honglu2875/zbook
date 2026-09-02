@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zbook"
-version = "1.0.0rc3"
+version = "1.0.0"
 description = "A fast, keyboard-first Jupyter notebook with uv and Codex CLI integration"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "honglu2875" }]
 keywords = ["jupyter", "notebook", "ipython", "uv", "codex", "ai"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: Web Environment",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",

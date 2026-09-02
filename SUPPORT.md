@@ -1,6 +1,6 @@
 # Zbook support policy
 
-This document defines the compatibility and security boundary Zbook intends to carry into the 1.x release line. The `1.0.0rc*` releases are validation candidates for that contract; incompatible changes may still be made between release candidates when testing reveals that they are necessary.
+This document defines the compatibility and security boundary Zbook carries through the stable 1.x release line. Within this boundary, backwards-incompatible changes are reserved for a new major version.
 
 ## Supported runtime
 
@@ -21,7 +21,7 @@ Run `zbook check` before filing a startup issue. It reports the Python and Jupyt
 
 ## 1.x compatibility contract
 
-After the stable 1.0 release, Zbook will follow semantic versioning for these user-facing interfaces:
+Zbook follows semantic versioning for these user-facing interfaces:
 
 - The `zbook check` and `zbook run` command structure and documented options.
 - Reading and writing standard `.ipynb` notebooks without a Zbook-specific conversion step.
