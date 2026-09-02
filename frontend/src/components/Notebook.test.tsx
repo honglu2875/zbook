@@ -197,7 +197,8 @@ describe("HTML notebook output", () => {
 
 describe("terminal-style notebook output", () => {
   it("renders ANSI traceback styles without exposing controls or interpreting HTML", () => {
-    const traceback = "\x1b[0;31mValueError\x1b[0m: <script>alert('no')</script>";
+    const traceback = "\x1b[0;31mValueError\x1b[0m: "
+      + "\x1b[48;5;11m<script>alert('no')</script>\x1b[49m";
     const markup = renderCell({
       ...cell,
       outputs: [{
@@ -215,6 +216,7 @@ describe("terminal-style notebook output", () => {
     expect(markup).toContain('class="is-error has-ansi"');
     expect(markup).toContain('class="ansi-text-run"');
     expect(markup).toContain("color:#d4777a");
+    expect(markup).toContain("background-color:#55431f");
     expect(markup).toContain("&lt;script&gt;alert(&#x27;no&#x27;)&lt;/script&gt;");
     expect(markup).not.toContain("\x1b");
     expect(markup).not.toContain("<script>");

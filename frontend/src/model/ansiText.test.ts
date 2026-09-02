@@ -59,6 +59,29 @@ describe("parseAnsiText", () => {
     expect(runContaining(parsed.runs, " default").style).toEqual({});
   });
 
+  it("darkens IPython yellow backgrounds without changing yellow foregrounds", () => {
+    const parsed = parseAnsiText(
+      "\x1b[30;43mouter \x1b[38;5;255mhighlighted\x1b[39;49m "
+      + "\x1b[48;5;11mindexed\x1b[49m "
+      + "\x1b[33mforeground\x1b[39m",
+    );
+
+    expect(runContaining(parsed.runs, "outer ").style).toMatchObject({
+      color: "#596168",
+      backgroundColor: "#55431f",
+    });
+    expect(runContaining(parsed.runs, "highlighted").style).toMatchObject({
+      color: "rgb(238, 238, 238)",
+      backgroundColor: "#55431f",
+    });
+    expect(runContaining(parsed.runs, "indexed").style).toEqual({
+      backgroundColor: "#55431f",
+    });
+    expect(runContaining(parsed.runs, "foreground").style).toEqual({
+      color: "#c6a15b",
+    });
+  });
+
   it("supports colon-form true color, inverse defaults, and independent resets", () => {
     const parsed = parseAnsiText(
       "\x1b[38:2::10:20:30;4:2;7mstyled"

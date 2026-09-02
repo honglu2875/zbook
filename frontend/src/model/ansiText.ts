@@ -44,6 +44,7 @@ interface CsiSequence {
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 const MAX_SGR_PARAMETER_LENGTH = 512;
 const MAX_SGR_PARAMETERS = 64;
+const TRACEBACK_HIGHLIGHT_BACKGROUND = "#55431f";
 
 // The first 16 xterm colors are tuned for Zbook's dark output surface. The
 // remaining 240 colors use the deterministic xterm color cube and grey ramp.
@@ -72,8 +73,15 @@ function resetState(state: AnsiState): void {
   Object.assign(state, DEFAULT_STATE);
 }
 
-function colorForIndex(index: number): string | null {
+function colorForIndex(index: number, background = false): string | null {
   if (!Number.isInteger(index) || index < 0 || index > 255) return null;
+  // IPython marks the currently executing expression with ANSI yellow. Its
+  // nested syntax tokens can restore a light foreground without clearing the
+  // background, so the terminal's usual bright yellow becomes illegible on a
+  // dark UI. Keep yellow foregrounds intact and darken only background use.
+  if (background && (index === 3 || index === 11)) {
+    return TRACEBACK_HIGHLIGHT_BACKGROUND;
+  }
   if (index < BASIC_COLORS.length) return BASIC_COLORS[index];
   if (index < 232) {
     const offset = index - 16;
@@ -109,7 +117,7 @@ function setExtendedColor(
   let color: string | null = null;
   if (mode === 5) {
     const index = byteValue(values[0]);
-    if (index !== null) color = colorForIndex(index);
+    if (index !== null) color = colorForIndex(index, target === "background");
   } else if (mode === 2) {
     const channels = values.length >= 4 ? values.slice(-3) : values.slice(0, 3);
     if (channels.length === 3) {
@@ -160,7 +168,7 @@ function applySimpleSgr(state: AnsiState, code: number, subparameters: string[] 
   } else if (code === 39) {
     state.foreground = null;
   } else if (code >= 40 && code <= 47) {
-    state.background = colorForIndex(code - 40);
+    state.background = colorForIndex(code - 40, true);
   } else if (code === 49) {
     state.background = null;
   } else if (code === 53) {
@@ -172,7 +180,7 @@ function applySimpleSgr(state: AnsiState, code: number, subparameters: string[] 
   } else if (code >= 90 && code <= 97) {
     state.foreground = colorForIndex(code - 90 + 8);
   } else if (code >= 100 && code <= 107) {
-    state.background = colorForIndex(code - 100 + 8);
+    state.background = colorForIndex(code - 100 + 8, true);
   }
   // Blink, fonts, framing, and ideogram attributes are intentionally inert:
   // notebook output should remain legible without motion or layout surprises.
